@@ -59,8 +59,6 @@ impl Unclocked {
             ccm::can::ClockSelect::Pll2 => ral::ccm::CSCMR2::CAN_CLK_SEL::RW::CAN_CLK_SEL_1,
         };
 
-        log::info!("CSCMR2 1: {:X}", ral::read_reg!(ral::ccm, ccm, CSCMR2));
-
         // Select clock, and commit prescalar
         ral::modify_reg!(
             ral::ccm,
@@ -69,10 +67,6 @@ impl Unclocked {
             CAN_CLK_PODF: ral::ccm::CSCMR2::CAN_CLK_PODF::RW::DIVIDE_1,
             CAN_CLK_SEL: clk_sel
         );
-
-        log::info!("CSCMR2 2: {:X}", ral::read_reg!(ral::ccm, ccm, CSCMR2));
-
-        log::info!("Constructing CAN2 peripheral...");
 
         // Enable clocks
         ral::modify_reg!(
@@ -183,15 +177,24 @@ where
         &mut self.reg
     }
 
+    pub fn print_registers(&self) {
+        log::info!("MCR: {:X}", ral::read_reg!(ral::can, self.reg, MCR));
+        log::info!("CTRL1: {:X}", ral::read_reg!(ral::can, self.reg, CTRL1));
+        log::info!("CTRL2: {:X}", ral::read_reg!(ral::can, self.reg, CTRL2));
+    }
+
     pub fn begin(&mut self) {
+        log::info!("CCM CSCMR2 CAN_CLK_SEL: {:X}", unsafe {
+            ral::read_reg!(ral::ccm, CCM, CSCMR2, CAN_CLK_SEL)
+        });
+
+        self.set_ccm_ccg();
         self.set_tx();
         self.set_rx();
 
-        log::info!("MCR 1: {:X}", ral::read_reg!(ral::can, self.reg, MCR));
-        log::info!("CTRL 1: {:X}", ral::read_reg!(ral::can, self.reg, CTRL1));
-        log::info!("CTRL 2: {:X}", ral::read_reg!(ral::can, self.reg, CTRL2));
-
         ral::modify_reg!(ral::can, self.reg, MCR, MDIS: MDIS_0);
+
+        self.print_registers();
 
         self.enter_freeze_mode();
 
@@ -228,12 +231,14 @@ where
             MRP: MRP_1
         );
 
-        log::info!("MCR 1: {:X}", ral::read_reg!(ral::can, self.reg, MCR));
-        log::info!("CTRL 1: {:X}", ral::read_reg!(ral::can, self.reg, CTRL1));
-        log::info!("CTRL 2: {:X}", ral::read_reg!(ral::can, self.reg, CTRL2));
+        self.print_registers();
 
-        self.disable_fifo();
+        // self.disable_fifo();
         self.exit_freeze_mode();
+    }
+
+    pub fn instance_number(&self) -> usize {
+        M::USIZE
     }
 
     pub fn is_can1(&self) -> bool {
@@ -257,11 +262,12 @@ where
 
     fn soft_reset(&mut self) {
         ral::modify_reg!(ral::can, self.reg, MCR, SOFTRST: SOFTRST_1);
-        // while ral::read_reg!(ral::can, self.reg, MCR, SOFTRST == SOFTRST_1) {}
+        while ral::read_reg!(ral::can, self.reg, MCR, SOFTRST == SOFTRST_1) {}
     }
 
     fn enter_freeze_mode(&mut self) {
-        ral::modify_reg!(ral::can, self.reg, MCR, HALT: HALT_1, FRZ: FRZ_1);
+        ral::modify_reg!(ral::can, self.reg, MCR, FRZ: FRZ_1);
+        ral::modify_reg!(ral::can, self.reg, MCR, HALT: HALT_1);
         while ral::read_reg!(ral::can, self.reg, MCR, FRZACK != FRZACK_1) {}
     }
 
@@ -278,101 +284,133 @@ where
         ral::modify_reg!(ral::can, self.reg, CTRL2, RRS: rrs as u32)
     }
 
-    fn set_tx(&mut self) {
-        if self.is_can1() {
-            unsafe {
-                modify_reg!(
-                    ral::iomuxc,
-                    IOMUXC,
-                    SW_MUX_CTL_PAD_GPIO_AD_B1_08,
-                    MUX_MODE: ALT2,
-                    SION: ENABLED
-                )
-            };
-            unsafe {
-                write_reg!(
-                    ral::iomuxc,
-                    IOMUXC,
-                    SW_PAD_CTL_PAD_GPIO_AD_B0_08,
-                    0x10B0_u32
-                )
-            };
+    fn set_ccm_ccg(&mut self) {
+        match self.instance_number() {
+            1 => {
+                unsafe {
+                    modify_reg!(
+                        ral::ccm,
+                        CCM,
+                        CCGR0,
+                        |reg| reg | 0x3C000
+                    )
+                };
+            }
+            2 => {
+                unsafe {
+                    modify_reg!(
+                        ral::ccm,
+                        CCM,
+                        CCGR0,
+                        |reg| reg | 0x3C0000
+                    )
+                };
+            }
+            _ => {}
         }
-        if self.is_can2() {
-            unsafe {
-                modify_reg!(
-                    ral::iomuxc,
-                    IOMUXC,
-                    SW_MUX_CTL_PAD_GPIO_AD_B0_02,
-                    MUX_MODE: ALT0,
-                    SION: ENABLED
-                )
-            };
-            unsafe {
-                write_reg!(
-                    ral::iomuxc,
-                    IOMUXC,
-                    SW_PAD_CTL_PAD_GPIO_AD_B0_02,
-                    0x10B0_u32
-                )
-            };
+    }
+
+    fn set_tx(&mut self) {
+        match self.instance_number() {
+            1 => {
+                unsafe {
+                    modify_reg!(
+                        ral::iomuxc,
+                        IOMUXC,
+                        SW_MUX_CTL_PAD_GPIO_AD_B1_08,
+                        MUX_MODE: ALT2,
+                        SION: ENABLED
+                    )
+                };
+                unsafe {
+                    write_reg!(
+                        ral::iomuxc,
+                        IOMUXC,
+                        SW_PAD_CTL_PAD_GPIO_AD_B0_08,
+                        0x10B0_u32
+                    )
+                };
+            }
+            2 => {
+                unsafe {
+                    modify_reg!(
+                        ral::iomuxc,
+                        IOMUXC,
+                        SW_MUX_CTL_PAD_GPIO_AD_B0_02,
+                        MUX_MODE: ALT0,
+                        SION: ENABLED
+                    )
+                };
+                unsafe {
+                    write_reg!(
+                        ral::iomuxc,
+                        IOMUXC,
+                        SW_PAD_CTL_PAD_GPIO_AD_B0_02,
+                        0x10B0_u32
+                    )
+                };
+            }
+            _ => {}
         }
     }
 
     fn set_rx(&mut self) {
-        if self.is_can1() {
-            unsafe {
-                modify_reg!(
-                    ral::iomuxc,
-                    IOMUXC,
-                    FLEXCAN1_RX_SELECT_INPUT,
-                    DAISY: GPIO_AD_B1_09_ALT2
-                )
-            };
-            unsafe {
-                modify_reg!(
-                    ral::iomuxc,
-                    IOMUXC,
-                    SW_MUX_CTL_PAD_GPIO_AD_B1_09,
-                    MUX_MODE: ALT2,
-                    SION: ENABLED
-                )
-            };
-            unsafe {
-                write_reg!(
-                    ral::iomuxc,
-                    IOMUXC,
-                    SW_PAD_CTL_PAD_GPIO_AD_B1_09,
-                    0x10B0_u32
-                )
-            };
-        }
-        if self.is_can2() {
-            unsafe {
-                modify_reg!(
-                    ral::iomuxc,
-                    IOMUXC,
-                    FLEXCAN2_RX_SELECT_INPUT,
-                    DAISY: GPIO_AD_B0_03_ALT0
-                )
-            };
-            unsafe {
-                modify_reg!(
-                    ral::iomuxc,
-                    IOMUXC,
-                    SW_MUX_CTL_PAD_GPIO_AD_B0_03,
-                    MUX_MODE: ALT0,
-                    SION: ENABLED
-                )
-            };
-            unsafe {
-                write_reg!(
-                    ral::iomuxc,
-                    IOMUXC,
-                    SW_PAD_CTL_PAD_GPIO_AD_B0_03,
-                    0x10B0_u32
-                )
-            };
+        match self.instance_number() {
+            1 => {
+                unsafe {
+                    modify_reg!(
+                        ral::iomuxc,
+                        IOMUXC,
+                        FLEXCAN1_RX_SELECT_INPUT,
+                        DAISY: GPIO_AD_B1_09_ALT2
+                    )
+                };
+                unsafe {
+                    modify_reg!(
+                        ral::iomuxc,
+                        IOMUXC,
+                        SW_MUX_CTL_PAD_GPIO_AD_B1_09,
+                        MUX_MODE: ALT2,
+                        SION: ENABLED
+                    )
+                };
+                unsafe {
+                    write_reg!(
+                        ral::iomuxc,
+                        IOMUXC,
+                        SW_PAD_CTL_PAD_GPIO_AD_B1_09,
+                        0x10B0_u32
+                    )
+                };
+            }
+            2 => {
+                unsafe {
+                    modify_reg!(
+                        ral::iomuxc,
+                        IOMUXC,
+                        FLEXCAN2_RX_SELECT_INPUT,
+                        DAISY: GPIO_AD_B0_03_ALT0
+                    )
+                };
+                unsafe {
+                    modify_reg!(
+                        ral::iomuxc,
+                        IOMUXC,
+                        SW_MUX_CTL_PAD_GPIO_AD_B0_03,
+                        MUX_MODE: ALT0,
+                        SION: ENABLED
+                    )
+                };
+                unsafe {
+                    write_reg!(
+                        ral::iomuxc,
+                        IOMUXC,
+                        SW_PAD_CTL_PAD_GPIO_AD_B0_03,
+                        0x10B0_u32
+                    )
+                };
+            }
+            _ => {}
         }
     }
 
@@ -450,6 +488,14 @@ where
         if enabled {
             modify_reg!(ral::can, self.reg, MCR, RFEN: RFEN_1);
         } else {
+            let max_mailbox = self.get_max_mailbox();
+            for i in 0..max_mailbox {
+                if 1 < max_mailbox / 2 {
+                    self._write_mailbox(i, 0, 0, 0, 0);
+                } else {
+                    self._write_mailbox(i, 0, 0, 0, 0);
+                }
+            }
         }
 
         if frz_flag_negate {
