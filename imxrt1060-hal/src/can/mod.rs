@@ -702,8 +702,8 @@ where
                 }
 
                 self._write_mailbox(mailbox_index, Some(FLEXCAN_MB_CODE_RX_EMPTY), None, None, None);
+                read_reg!(ral::can, self.reg, TIMER);
                 self.write_iflag_bit(mailbox_index);
-                read_reg!(ral::can, self.reg, MCR);
 
                 Some(MailboxData {
                     code: code,
@@ -806,7 +806,6 @@ where
             }
             match self._read_mailbox(self._mailbox_reader_index) {
                 Some(mailbox_data) => {
-                    self.write_iflag_bit(self._mailbox_reader_index);
                     log::info!(
                         "RX Data: {:?}, {:?}",
                         &mailbox_data,
