@@ -6,7 +6,8 @@ mod interrupt;
 
 pub use frame::{Data, Frame, FramePriority};
 pub use id::{ExtendedId, Id, IdReg, StandardId};
-use ral::{modify_reg, write_reg};
+use ral::can3::CTRL1::PROPSEG;
+use ral::{modify_reg, read_reg, write_reg};
 
 use crate::ccm;
 use crate::iomuxc::consts::{Unsigned, U1, U2};
@@ -156,6 +157,9 @@ impl From<&MailboxData> for MailboxDataInfo {
     }
 }
 
+const FLEXCAN_MB_CODE_TX_INACTIVE: u32 = ((8) & 0x0000000F) << 24;
+const FLEXCAN_MB_CODE_RX_EMPTY: u32 = ((4) & 0x0000000F) << 24;
+
 impl<M> CAN<M>
 where
     M: Unsigned,
@@ -184,10 +188,6 @@ where
     }
 
     pub fn begin(&mut self) {
-        log::info!("CCM CSCMR2 CAN_CLK_SEL: {:X}", unsafe {
-            ral::read_reg!(ral::ccm, CCM, CSCMR2, CAN_CLK_SEL)
-        });
-
         self.set_ccm_ccg();
         self.set_tx();
         self.set_rx();
@@ -233,7 +233,7 @@ where
 
         self.print_registers();
 
-        // self.disable_fifo();
+        self.disable_fifo();
         self.exit_freeze_mode();
     }
 
@@ -287,24 +287,10 @@ where
     fn set_ccm_ccg(&mut self) {
         match self.instance_number() {
             1 => {
-                unsafe {
-                    modify_reg!(
-                        ral::ccm,
-                        CCM,
-                        CCGR0,
-                        |reg| reg | 0x3C000
-                    )
-                };
+                unsafe { modify_reg!(ral::ccm, CCM, CCGR0, |reg| reg | 0x3C000) };
             }
             2 => {
-                unsafe {
-                    modify_reg!(
-                        ral::ccm,
-                        CCM,
-                        CCGR0,
-                        |reg| reg | 0x3C0000
-                    )
-                };
+                unsafe { modify_reg!(ral::ccm, CCM, CCGR0, |reg| reg | 0x3C0000) };
             }
             _ => {}
         }
@@ -414,7 +400,100 @@ where
         }
     }
 
-    fn set_baud_rate(&mut self) {}
+    fn get_clock(&self) -> u32 {
+        0
+    }
+
+    fn result_to_bit_table(&self, result: u8) -> Option<[u32; 3]> {
+        match result {
+            0 => Some([0, 0, 1]),
+            1 => Some([1, 0, 1]),
+            2 => Some([1, 1, 1]),
+            3 => Some([2, 1, 1]),
+            4 => Some([2, 2, 1]),
+            5 => Some([2, 3, 1]),
+            6 => Some([2, 3, 2]),
+            7 => Some([2, 4, 2]),
+            8 => Some([2, 5, 2]),
+            9 => Some([2, 5, 3]),
+            10 => Some([2, 6, 3]),
+            11 => Some([2, 7, 3]),
+            12 => Some([2, 7, 4]),
+            13 => Some([3, 7, 4]),
+            14 => Some([3, 7, 5]),
+            15 => Some([4, 7, 5]),
+            16 => Some([4, 7, 6]),
+            17 => Some([5, 7, 6]),
+            18 => Some([6, 7, 6]),
+            19 => Some([6, 7, 7]),
+            20 => Some([7, 7, 7]),
+            _ => None,
+        }
+    }
+
+    pub fn set_baud_rate(&mut self, baud: u32) {
+        let clockFreq = 24_000_000_u32;
+
+        let mut divisor = 0;
+        let mut bestDivisor: u32 = 0;
+        let mut result: u32 = clockFreq / baud / (divisor + 1);
+        let mut error: i16 = (baud - (clockFreq / (result * (divisor + 1)))) as i16;
+        let mut bestError = error;
+
+        let frz_flag_negate = ral::read_reg!(ral::can, self.reg, MCR, FRZACK == FRZACK_0);
+        self.enter_freeze_mode();
+
+        while result > 5 {
+            divisor += 1;
+            result = clockFreq / baud / (divisor + 1);
+            if result <= 25 {
+                error = (baud - (clockFreq / (result * (divisor + 1)))) as i16;
+                if error < 0 {
+                    error = -1 * error;
+                }
+                if error < bestError {
+                    bestError = error;
+                    bestDivisor = divisor;
+                }
+                if (error == bestError) && (result > 11) && (result < 19) {
+                    bestError = error;
+                    bestDivisor = divisor;
+                }
+            }
+        }
+
+        divisor = bestDivisor;
+        result = clockFreq / baud / (divisor + 1);
+
+        if (result < 5) || (result > 25) || (bestError > 300) {
+            if frz_flag_negate {
+                self.exit_freeze_mode();
+                return;
+            }
+        }
+
+        result -= 5;
+
+        match self.result_to_bit_table(result as u8) {
+            Some(t) => {
+                modify_reg!(
+                    ral::can, 
+                    self.reg, 
+                    CTRL1, 
+                    PROPSEG: t[0], 
+                    RJW: 1, 
+                    PSEG1: t[1], 
+                    PSEG2: t[2], 
+                    ERRMSK: ERRMSK_1,
+                    PRESDIV: divisor)
+            }
+            _ => {}
+        }
+
+        if frz_flag_negate {
+            self.exit_freeze_mode();
+        }
+    }
 
     fn set_max_mailbox(&mut self, last: u8) {
         let last = match last {
@@ -452,6 +531,16 @@ where
         }
     }
 
+    fn write_imask_bit(&mut self, mailbox_number: u8, value: bool) {
+        if mailbox_number < 32 {
+            modify_reg!(ral::can, self.reg, IMASK1, |reg| reg
+                | (value as u32) << mailbox_number)
+        } else {
+            modify_reg!(ral::can, self.reg, IMASK2, |reg| reg
+                | (value as u32) << (mailbox_number - 32))
+        }
+    }
+
     fn read_iflag(&self) -> u64 {
         (ral::read_reg!(ral::can, self.reg, IFLAG2) as u64) << 32
             | ral::read_reg!(ral::can, self.reg, IFLAG1) as u64
@@ -468,7 +557,7 @@ where
     }
 
     fn enable_fifo(&mut self, enabled: bool) {
-        let frz_flag_negate = ral::read_reg!(ral::can, self.reg, MCR, FRZACK == FRZACK_1);
+        let frz_flag_negate = ral::read_reg!(ral::can, self.reg, MCR, FRZACK == FRZACK_0);
 
         self.enter_freeze_mode();
 
@@ -477,7 +566,7 @@ where
         self.write_imask(0);
 
         for i in 0..self.get_max_mailbox() {
-            self._write_mailbox(i, 0, 0, 0, 0);
+            self._write_mailbox(i, Some(0), Some(0), Some(0), Some(0));
         }
 
         write_reg!(ral::can, self.reg, RXMGMASK, 0);
@@ -485,15 +574,44 @@ where
 
         self.write_iflag(self.read_iflag());
 
+        let max_mailbox = self.get_max_mailbox();
         if enabled {
             modify_reg!(ral::can, self.reg, MCR, RFEN: RFEN_1);
+            for i in self.mailbox_offset()..max_mailbox {
+                self._write_mailbox(i, Some(FLEXCAN_MB_CODE_TX_INACTIVE), None, None, None);
+                self.enable_mailbox_interrupt(i, true);
+            }
         } else {
-            let max_mailbox = self.get_max_mailbox();
             for i in 0..max_mailbox {
-                if 1 < max_mailbox / 2 {
-                    self._write_mailbox(i, 0, 0, 0, 0);
+                if i < max_mailbox / 2 {
+                    log::info!("RX MB: {:?}", i);
+                    let code = FLEXCAN_MB_CODE_RX_EMPTY | 0x00400000 | {
+                        if i < max_mailbox / 4 {
+                            0
+                        } else {
+                            0x00200000
+                        }
+                    };
+                    self._write_mailbox(i, Some(code), None, None, None);
+                    let eacen = read_reg!(ral::can, self.reg, CTRL2, EACEN == EACEN_1);
+                    let rximr = 0_32 | {
+                        if eacen {
+                            1_u32 << 30
+                        } else {
+                            0
+                        }
+                    };
+                    self._write_mailbox_rximr(i, Some(rximr));
                 } else {
-                    self._write_mailbox(i, 0, 0, 0, 0);
+                    log::info!("TX MB: {:?}", i);
+                    self._write_mailbox(
+                        i,
+                        Some(FLEXCAN_MB_CODE_TX_INACTIVE),
+                        Some(0),
+                        Some(0),
+                        Some(0),
+                    );
+                    self.enable_mailbox_interrupt(i, true);
                 }
             }
         }
@@ -546,61 +664,111 @@ where
         self.base_address() + 0x80_u32 + (mailbox_index as u32 * 0x10_u32)
     }
 
-    fn _read_mailbox(&self, mailbox_index: u8) -> Option<MailboxData> {
+    fn _mailbox_index_to_rximr_address(&self, mailbox_index: u8) -> u32 {
+        self.base_address() + 0x880_u32 + (mailbox_index as u32 * 0x4_u32)
+    }
+
+    fn _read_mailbox(&mut self, mailbox_index: u8) -> Option<MailboxData> {
         let mailbox_addr = self._mailbox_index_to_address(mailbox_index);
-        log::info!(
-            "mailbox_addr: {:X}, imask: {:X}",
-            &mailbox_addr,
-            self.read_imask()
-        );
 
         if (self.read_imask() & (1_u64 << mailbox_index)) != 0 {
-            log::info!("Int Enablesd! {:?}", self.read_imask());
             return None;
         }
 
-        // let code = unsafe { core::ptr::read_volatile(mailbox_addr as *const u32) };
-        // let c = (code * 0x0F000000_u32) >> 24;
+        let code = unsafe { core::ptr::read_volatile(mailbox_addr as *const u32) };
+        let c = ((code & 0x0F000000_u32) >> 24) as u8;
 
-        // log::info!("Code: {:?}", &code);
+        match c {
+            // return None from a transmit mailbox
+            c if c >> 3 != 0 => {
+                log::info!("transmit code!");
+                None
+            }
+            // full or overrun
+            0b0010_u8 | 0b0110_u8 => {
+                let id =
+                    unsafe { core::ptr::read_volatile((mailbox_addr + 0x4_u32) as *const u32) };
+                let data0 =
+                    unsafe { core::ptr::read_volatile((mailbox_addr + 0x8_u32) as *const u32) };
+                let data1 =
+                    unsafe { core::ptr::read_volatile((mailbox_addr + 0xC_u32) as *const u32) };
 
-        // match ((c & 0x0F000000_u32) >> 24) as u8 {
-        //     // return None from a transmit mailbox
-        //     c if c >> 3 != 0 => None,
-        //     // full or overrun
-        //     c if c == 0b0010_u8 || c == 0b0110_u8 => {
-        //         let id = unsafe { core::ptr::read_volatile((mailbox_addr + 1_u32) as *const u32) };
-        //         let data0 =
-        //             unsafe { core::ptr::read_volatile((mailbox_addr + 2_u32) as *const u32) };
-        //         let data1 =
-        //             unsafe { core::ptr::read_volatile((mailbox_addr + 3_u32) as *const u32) };
+                let mut data: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+                for i in 0..4 {
+                    data[3 - i] = (data0 >> (8 * i)) as u8;
+                }
+                for i in 0..4 {
+                    data[7 - i] = (data1 >> (8 * i)) as u8;
+                }
 
-        //         let mut data: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
-        //         for i in 0..4 {
-        //             data[3 - i] = (data0 >> (8 * i)) as u8;
-        //         }
-        //         for i in 0..4 {
-        //             data[7 - i] = (data1 >> (8 * i)) as u8;
-        //         }
+                self._write_mailbox(mailbox_index, Some(FLEXCAN_MB_CODE_RX_EMPTY), None, None, None);
+                self.write_iflag_bit(mailbox_index);
+                read_reg!(ral::can, self.reg, MCR);
 
-        //         Some(MailboxData {
-        //             code: code,
-        //             id: id,
-        //             data: data,
-        //             mailbox_index: mailbox_index,
-        //         })
-        //     }
-        //     _ => None,
-        // }
-        None
+                Some(MailboxData {
+                    code: code,
+                    id: id,
+                    data: data,
+                    mailbox_index: mailbox_index,
+                })
+            }
+            _ => {
+                None
+            }
+        }
     }
 
-    fn _write_mailbox(&self, mailbox_index: u8, code: u32, id: u32, data0: u32, data1: u32) {
+    fn _write_mailbox(
+        &self,
+        mailbox_index: u8,
+        code: Option<u32>,
+        id: Option<u32>,
+        word0: Option<u32>,
+        word1: Option<u32>,
+    ) {
         let mailbox_addr = self._mailbox_index_to_address(mailbox_index);
-        unsafe { core::ptr::write_volatile((mailbox_addr + 0_u32) as *mut u32, code) };
-        unsafe { core::ptr::write_volatile((mailbox_addr + 1_u32) as *mut u32, id) };
-        unsafe { core::ptr::write_volatile((mailbox_addr + 2_u32) as *mut u32, data0) };
-        unsafe { core::ptr::write_volatile((mailbox_addr + 3_u32) as *mut u32, data1) };
+        if let Some(code) = code {
+            unsafe { core::ptr::write_volatile((mailbox_addr + 0_u32) as *mut u32, code) };
+        }
+        if let Some(id) = id {
+            unsafe { core::ptr::write_volatile((mailbox_addr + 0x4_u32) as *mut u32, id) };
+        }
+        if let Some(word0) = word0 {
+            unsafe { core::ptr::write_volatile((mailbox_addr + 0x8_u32) as *mut u32, word0) };
+        }
+        if let Some(word1) = word1 {
+            unsafe { core::ptr::write_volatile((mailbox_addr + 0xC_u32) as *mut u32, word1) };
+        }
+    }
+
+    fn _write_mailbox_rximr(&self, mailbox_index: u8, rximr: Option<u32>) {
+        let mailbox_rximr_addr = self._mailbox_index_to_rximr_address(mailbox_index);
+        // log::info!("mailbox_rximr_addr {:X}", mailbox_rximr_addr);
+        if let Some(rximr) = rximr {
+            unsafe { core::ptr::write_volatile((mailbox_rximr_addr) as *mut u32, rximr) };
+        }
+    }
+
+    fn enable_mailbox_interrupt(&mut self, mailbox_index: u8, status: bool) {
+        if mailbox_index < self.mailbox_offset() {
+            return;
+        }
+        if status {
+            self.write_imask_bit(mailbox_index, true);
+            return;
+        } else {
+            match self._read_mailbox(mailbox_index) {
+                Some(d) => {
+                    if d.id >> 3 != 0 {
+                        self.write_imask_bit(mailbox_index, true);
+                        return;
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.write_imask_bit(mailbox_index, false);
+        return;
     }
 
     pub fn read_mailbox(&mut self) -> Option<()> {
@@ -608,9 +776,6 @@ where
         let mut cycle_limit: u8 = 3;
         let offset = self.mailbox_offset();
         let max_mailbox = self.get_max_mailbox();
-        log::info!("offset: {:?}, max_mailbox: {:?}", offset, max_mailbox);
-        let base = unsafe { core::ptr::read_volatile(self.base_address() as *const u32) };
-        log::info!("base: {:X}", base);
         while self._mailbox_reader_index <= max_mailbox {
             iflag = self.read_iflag();
             if iflag != 0 && (self._mailbox_reader_index >= (64 - iflag.leading_zeros() as u8)) {
@@ -639,14 +804,18 @@ where
                 self._mailbox_reader_index += 1;
                 continue; /* don't read interrupt enabled mailboxes */
             }
-
-            if let Some(mailbox_data) = self._read_mailbox(self._mailbox_reader_index) {
-                self.write_iflag_bit(self._mailbox_reader_index);
-                log::info!(
-                    "RX Data: {:?}, {:?}",
-                    &mailbox_data,
-                    MailboxDataInfo::from(&mailbox_data)
-                );
+            match self._read_mailbox(self._mailbox_reader_index) {
+                Some(mailbox_data) => {
+                    self.write_iflag_bit(self._mailbox_reader_index);
+                    log::info!(
+                        "RX Data: {:?}, {:?}",
+                        &mailbox_data,
+                        MailboxDataInfo::from(&mailbox_data)
+                    );
+                }
+                _ => {
+                    // log::info!("No Rx Data in MB: {:?}", &self._mailbox_reader_index,);
+                }
             }
             self._mailbox_reader_index += 1;
         }
