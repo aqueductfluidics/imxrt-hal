@@ -4,7 +4,7 @@ mod tests;
 use core::cmp::Ordering;
 use core::ops::{Deref, DerefMut};
 
-use super::{Id, IdReg};
+use super::id::{Id, IdReg};
 
 /// A CAN data or remote frame.
 #[derive(Clone, Debug, Eq)]

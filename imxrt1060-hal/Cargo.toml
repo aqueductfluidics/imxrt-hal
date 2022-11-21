@@ -40,10 +40,8 @@ git = "https://github.com/imxrt-rs/imxrt-ral"
 features = ["imxrt1062"]
 
 [dependencies.imxrt-iomuxc]
-version = "0.2.0"
-git = "https://github.com/imxrt-rs/imxrt-iomuxc.git"
-rev = "dffa37438b362ad598015db90f8b2d4b6c71b609"
-features = ["imxrt1060"]
+version = "0.1.5"
+features = ["imxrt106x"]
 
 [dev-dependencies.cortex-m-rt]
 version = "0.6"
