@@ -495,7 +495,7 @@ where
         }
     }
 
-    fn set_max_mailbox(&mut self, last: u8) {
+    pub fn set_max_mailbox(&mut self, last: u8) {
         let last = match last {
             _l if last >= 64 => 63,
             _l if last <= 1 => 0,
