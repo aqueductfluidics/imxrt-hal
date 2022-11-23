@@ -292,12 +292,13 @@ where
             2 => {
                 unsafe { modify_reg!(ral::ccm, CCM, CCGR0, |reg| reg | 0x3C0000) };
             }
-            _ => {}
+            u => {
+                log::error!("Invalid CAN instance (set_ccm_ccg): {:?}", u);
+            }
         }
     }
 
     fn set_tx(&mut self) {
-        log::info!("Setting tx for : CAN{}", &self.instance_number());
         match self.instance_number() {
             1 => {
                 unsafe {
@@ -337,12 +338,13 @@ where
                     )
                 };
             }
-            _ => {}
+            u => {
+                log::error!("Invalid CAN instance (set_tx): {:?}", u);
+            }
         }
     }
 
     fn set_rx(&mut self) {
-        log::info!("Setting rx for : CAN{}", &self.instance_number());
         match self.instance_number() {
             1 => {
                 unsafe {
@@ -398,7 +400,9 @@ where
                     )
                 };
             }
-            _ => {}
+            u => {
+                log::error!("Invalid CAN instance (set_rx): {:?}", u);
+            }
         }
     }
 
@@ -434,40 +438,40 @@ where
     }
 
     pub fn set_baud_rate(&mut self, baud: u32) {
-        let clockFreq = 24_000_000_u32;
+        let clock_freq = 24_000_000_u32;
 
         let mut divisor = 0;
-        let mut bestDivisor: u32 = 0;
-        let mut result: u32 = clockFreq / baud / (divisor + 1);
-        let mut error: i16 = (baud - (clockFreq / (result * (divisor + 1)))) as i16;
-        let mut bestError = error;
+        let mut best_divisor: u32 = 0;
+        let mut result: u32 = clock_freq / baud / (divisor + 1);
+        let mut error: i16 = (baud - (clock_freq / (result * (divisor + 1)))) as i16;
+        let mut best_error = error;
 
         let frz_flag_negate = ral::read_reg!(ral::can, self.reg, MCR, FRZACK == FRZACK_0);
         self.enter_freeze_mode();
 
         while result > 5 {
             divisor += 1;
-            result = clockFreq / baud / (divisor + 1);
+            result = clock_freq / baud / (divisor + 1);
             if result <= 25 {
-                error = (baud - (clockFreq / (result * (divisor + 1)))) as i16;
+                error = (baud - (clock_freq / (result * (divisor + 1)))) as i16;
                 if error < 0 {
                     error = -1 * error;
                 }
-                if error < bestError {
-                    bestError = error;
-                    bestDivisor = divisor;
+                if error < best_error {
+                    best_error = error;
+                    best_divisor = divisor;
                 }
-                if (error == bestError) && (result > 11) && (result < 19) {
-                    bestError = error;
-                    bestDivisor = divisor;
+                if (error == best_error) && (result > 11) && (result < 19) {
+                    best_error = error;
+                    best_divisor = divisor;
                 }
             }
         }
 
-        divisor = bestDivisor;
-        result = clockFreq / baud / (divisor + 1);
+        divisor = best_divisor;
+        result = clock_freq / baud / (divisor + 1);
 
-        if (result < 5) || (result > 25) || (bestError > 300) {
+        if (result < 5) || (result > 25) || (best_error > 300) {
             if frz_flag_negate {
                 self.exit_freeze_mode();
                 return;
@@ -680,7 +684,7 @@ where
         let code = unsafe { core::ptr::read_volatile(mailbox_addr as *const u32) };
         let c = ((code & 0x0F000000_u32) >> 24) as u8;
 
-        log::info!("code: {:X}, c {:X}", code, c);
+        // log::info!("code: {:X}, c {:X}", code, c);
 
         match c {
             // return None from a transmit mailbox
@@ -710,10 +714,10 @@ where
                 self.write_iflag_bit(mailbox_index);
 
                 Some(MailboxData {
-                    code: code,
-                    id: id,
-                    data: data,
-                    mailbox_index: mailbox_index,
+                    code,
+                    id,
+                    data,
+                    mailbox_index,
                 })
             }
             _ => {
@@ -817,7 +821,7 @@ where
                     );
                 }
                 _ => {
-                    log::info!("No Rx Data in MB: {:?}", &self._mailbox_reader_index,);
+                    // log::info!("No Rx Data in MB: {:?}", &self._mailbox_reader_index,);
                 }
             }
             self._mailbox_reader_index += 1;
