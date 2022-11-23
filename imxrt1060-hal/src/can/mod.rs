@@ -6,7 +6,6 @@ mod interrupt;
 
 pub use frame::{Data, Frame, FramePriority};
 pub use id::{ExtendedId, Id, IdReg, StandardId};
-use ral::can3::CTRL1::PROPSEG;
 use ral::{modify_reg, read_reg, write_reg};
 
 use crate::ccm;
