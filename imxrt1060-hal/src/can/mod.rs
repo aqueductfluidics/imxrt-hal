@@ -297,6 +297,7 @@ where
     }
 
     fn set_tx(&mut self) {
+        log::info!("Setting tx for : CAN{}", &self.instance_number());
         match self.instance_number() {
             1 => {
                 unsafe {
@@ -312,7 +313,7 @@ where
                     write_reg!(
                         ral::iomuxc,
                         IOMUXC,
-                        SW_PAD_CTL_PAD_GPIO_AD_B0_08,
+                        SW_PAD_CTL_PAD_GPIO_AD_B1_08,
                         0x10B0_u32
                     )
                 };
@@ -341,6 +342,7 @@ where
     }
 
     fn set_rx(&mut self) {
+        log::info!("Setting rx for : CAN{}", &self.instance_number());
         match self.instance_number() {
             1 => {
                 unsafe {
@@ -678,6 +680,8 @@ where
         let code = unsafe { core::ptr::read_volatile(mailbox_addr as *const u32) };
         let c = ((code & 0x0F000000_u32) >> 24) as u8;
 
+        log::info!("code: {:X}, c {:X}", code, c);
+
         match c {
             // return None from a transmit mailbox
             c if c >> 3 != 0 => {
@@ -813,7 +817,7 @@ where
                     );
                 }
                 _ => {
-                    // log::info!("No Rx Data in MB: {:?}", &self._mailbox_reader_index,);
+                    log::info!("No Rx Data in MB: {:?}", &self._mailbox_reader_index,);
                 }
             }
             self._mailbox_reader_index += 1;
