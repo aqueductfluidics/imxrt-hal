@@ -193,8 +193,6 @@ where
 
         ral::modify_reg!(ral::can, self.reg, MCR, MDIS: MDIS_0);
 
-        self.print_registers();
-
         self.enter_freeze_mode();
 
         ral::modify_reg!(ral::can, self.reg, CTRL1, LOM: LOM_1);
@@ -229,8 +227,6 @@ where
             EACEN: EACEN_1,
             MRP: MRP_1
         );
-
-        self.print_registers();
 
         self.disable_fifo();
         self.exit_freeze_mode();
@@ -490,6 +486,7 @@ where
                     PSEG1: t[1], 
                     PSEG2: t[2], 
                     ERRMSK: ERRMSK_1,
+                    LOM: LOM_0,
                     PRESDIV: divisor)
             }
             _ => {}
@@ -561,7 +558,7 @@ where
         write_reg!(ral::can, self.reg, IMASK2, (value >> 32) as u32);
     }
 
-    fn enable_fifo(&mut self, enabled: bool) {
+    pub fn enable_fifo(&mut self, enabled: bool) {
         let frz_flag_negate = ral::read_reg!(ral::can, self.reg, MCR, FRZACK == FRZACK_0);
 
         self.enter_freeze_mode();
@@ -572,6 +569,7 @@ where
 
         for i in 0..self.get_max_mailbox() {
             self._write_mailbox(i, Some(0), Some(0), Some(0), Some(0));
+            self._write_mailbox_rximr(i, Some(0x00));
         }
 
         write_reg!(ral::can, self.reg, RXMGMASK, 0);
@@ -688,7 +686,7 @@ where
         match c {
             // return None from a transmit mailbox
             c if c >> 3 != 0 => {
-                log::info!("transmit code!");
+                // log::info!("transmit code!");
                 None
             }
             // full or overrun
