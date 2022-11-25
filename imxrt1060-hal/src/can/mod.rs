@@ -44,7 +44,6 @@ impl Unclocked {
     ) -> (Builder<U1>, Builder<U2>) {
         let (ccm, _) = handle.raw();
         // First, disable clocks
-        // First, disable clocks
         ral::modify_reg!(
             ral::ccm,
             ccm,
@@ -145,10 +144,9 @@ pub struct MailboxDataInfo {
 impl From<&MailboxData> for MailboxDataInfo {
     fn from(d: &MailboxData) -> Self {
         let extended = d.code & (1_u32 << 21) == 1;
-
         Self {
             remote: d.code & (1_u32 << 20) == 1,
-            extended: extended,
+            extended,
             id: (d.id & 0x1FFFFFFF_u32) >> (if extended { 0 } else { 18 }),
             length: ((d.code & 0xF0000_u32) >> 16) as u8,
             timestamp: d.code & 0xFFFF_u32,
@@ -402,7 +400,7 @@ where
     }
 
     fn get_clock(&self) -> u32 {
-        0
+        self.source_clock.0
     }
 
     fn result_to_bit_table(&self, result: u8) -> Option<[u32; 3]> {
@@ -433,7 +431,7 @@ where
     }
 
     pub fn set_baud_rate(&mut self, baud: u32) {
-        let clock_freq = 24_000_000_u32;
+        let clock_freq = 24_000_000;
 
         let mut divisor = 0;
         let mut best_divisor: u32 = 0;
