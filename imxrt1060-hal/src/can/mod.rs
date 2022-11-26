@@ -470,24 +470,23 @@ where
                     }
                 }
             }
-    
+
             divisor = best_divisor;
             result = clock_freq / baud / (divisor + 1);
-    
+
             if !(result < 5) || (result > 25) || (best_error > 300) {
-                
                 result -= 5;
-        
+
                 match this.result_to_bit_table(result as u8) {
                     Some(t) => {
                         modify_reg!(
-                            ral::can, 
-                            this.reg, 
-                            CTRL1, 
-                            PROPSEG: t[0], 
-                            RJW: 1, 
-                            PSEG1: t[1], 
-                            PSEG2: t[2], 
+                            ral::can,
+                            this.reg,
+                            CTRL1,
+                            PROPSEG: t[0],
+                            RJW: 1,
+                            PSEG1: t[1],
+                            PSEG2: t[2],
                             ERRMSK: ERRMSK_1,
                             LOM: LOM_0,
                             PRESDIV: divisor)
@@ -560,9 +559,7 @@ where
     }
 
     pub fn enable_fifo(&mut self, enabled: bool) {
-
         self.while_frozen(|this| {
-
             modify_reg!(ral::can, this.reg, MCR, RFEN: RFEN_0);
 
             this.write_imask(0);
@@ -580,7 +577,10 @@ where
             let max_mailbox = this.get_max_mailbox();
             if enabled {
                 modify_reg!(ral::can, this.reg, MCR, RFEN: RFEN_1);
+                while ral::read_reg!(ral::can, this.reg, MCR, RFEN != RFEN_1) {}
+                log::info!("mailbox_offset: {:?}", this.mailbox_offset());
                 for i in this.mailbox_offset()..max_mailbox {
+                    log::info!("FIFO TX MB: {:?}", i);
                     this._write_mailbox(i, Some(FLEXCAN_MB_CODE_TX_INACTIVE), None, None, None);
                     this.enable_mailbox_interrupt(i, true);
                 }
@@ -625,23 +625,48 @@ where
         self.enable_fifo(false);
     }
 
+    pub fn enable_fifo_interrupt(&mut self, enabled: bool) {
+        /* FIFO must be enabled first */
+        if !self.fifo_enabled() {
+            return;
+        };
+        /* FIFO interrupts already enabled */
+        if (ral::read_reg!(ral::can, self.reg, IMASK1, BUFLM) & 0x00000020) != 0 {
+            return;
+        };
+        /* disable FIFO interrupt flags */
+        modify_reg!(ral::can, self.reg, IMASK1, |reg| reg & !0xFF);
+        /* enable FIFO interrupt */
+        if enabled {
+            modify_reg!(ral::can, self.reg, IMASK1, BUFLM: 0x00000020);
+        }
+    }
+
     fn fifo_enabled(&self) -> bool {
-        ral::read_reg!(ral::can, self.reg, MCR, RFEN == RFEN_1)
+        // let x = ral::read_reg!(ral::can, self.reg, MCR);
+        // log::info!("MCR {:X}", x);
+        let fifo_enabled = ral::read_reg!(ral::can, self.reg, MCR, RFEN == RFEN_1);
+        // log::info!("fifo_enabled {:?}", fifo_enabled);
+        fifo_enabled
     }
 
     fn mailbox_offset(&self) -> u8 {
-        if !self.fifo_enabled() {
-            let max_mailbox  = self.get_max_mailbox() as u32;
-            let remaining_mailboxes = 
-            max_mailbox
-                - 6_u32 
-                - ( read_reg!(ral::can, self.reg, CTRL2, RFFN) + 1 ) * 2;
+        if self.fifo_enabled() {
+            let max_mailbox = self.get_max_mailbox() as u32;
+            let num_rx_fifo_filters = (read_reg!(ral::can, self.reg, CTRL2, RFFN) + 1) * 2;
+            let remaining_mailboxes =
+                max_mailbox - 6_u32 - num_rx_fifo_filters;
+            /* return offset MB position after FIFO area */
             if max_mailbox < max_mailbox - remaining_mailboxes {
-                0
+                // log::info!("mailbox_offset 1 {:?}", max_mailbox as u8);
+                max_mailbox as u8
             } else {
+                // log::info!("mailbox_offset 2 {:?}", (max_mailbox - remaining_mailboxes) as u8);
                 (max_mailbox - remaining_mailboxes) as u8
             }
         } else {
+            /* return offset 0 since FIFO is disabled */
+            // log::info!("mailbox_offset 3 {:?}", 0);
             0
         }
     }
@@ -674,7 +699,6 @@ where
         let mailbox_addr = self._mailbox_number_to_address(mailbox_number);
         let code = unsafe { core::ptr::read_volatile(mailbox_addr as *const u32) };
         Some(((code & 0x0F000000_u32) >> 24) as u8)
-
     }
 
     fn _read_mailbox(&mut self, mailbox_number: u8) -> Option<MailboxData> {
@@ -710,7 +734,13 @@ where
                     data[7 - i] = (data1 >> (8 * i)) as u8;
                 }
 
-                self._write_mailbox(mailbox_number, Some(FLEXCAN_MB_CODE_RX_EMPTY), None, None, None);
+                self._write_mailbox(
+                    mailbox_number,
+                    Some(FLEXCAN_MB_CODE_RX_EMPTY),
+                    None,
+                    None,
+                    None,
+                );
                 read_reg!(ral::can, self.reg, TIMER);
                 self.write_iflag_bit(mailbox_number);
 
@@ -721,9 +751,7 @@ where
                     mailbox_number,
                 })
             }
-            _ => {
-                None
-            }
+            _ => None,
         }
     }
 
@@ -750,38 +778,25 @@ where
         }
     }
 
-    fn _write_tx_mailbox(
-        &mut self,
-        mailbox_number: u8,
-        id: u32,
-        word0: u32, 
-        word1: u32,
-    ) {
+    fn _write_tx_mailbox(&mut self, mailbox_number: u8, id: u32, word0: u32, word1: u32) {
         self.write_iflag_bit(mailbox_number);
         let mut code: u32 = 0x00;
         self._write_mailbox(
-            mailbox_number, 
-            Some(FLEXCAN_MB_CODE_TX_INACTIVE), 
+            mailbox_number,
+            Some(FLEXCAN_MB_CODE_TX_INACTIVE),
             None,
             None,
-            None
+            None,
         );
         self._write_mailbox(
-            mailbox_number, 
+            mailbox_number,
             None,
             Some((id & 0x000007FF) << 18),
-            Some(word0), 
-            Some(word1), 
+            Some(word0),
+            Some(word1),
         );
         code |= 8 << 16 | FLEXCAN_MB_CODE_TX_ONCE;
-        self._write_mailbox(
-            mailbox_number, 
-            Some(code), 
-            None,
-            None,
-            None
-        );
-
+        self._write_mailbox(mailbox_number, Some(code), None, None, None);
     }
 
     fn _write_mailbox_rximr(&self, mailbox_number: u8, rximr: Option<u32>) {
@@ -791,17 +806,20 @@ where
         }
     }
 
-    fn enable_mailbox_interrupt(&mut self, mailbox_number: u8, status: bool) {
+    fn enable_mailbox_interrupt(&mut self, mailbox_number: u8, enabled: bool) {
+        /* mailbox not available */
         if mailbox_number < self.mailbox_offset() {
             return;
         }
-        if status {
+        if enabled {
+            /* enable mailbox interrupt */
             self.write_imask_bit(mailbox_number, true);
             return;
         } else {
             match self._read_mailbox(mailbox_number) {
                 Some(d) => {
-                    if d.id >> 3 != 0 {
+                    if (d.code & 0x0F000000) >> 3 != 0 {
+                        /* transmit interrupt keeper */
                         self.write_imask_bit(mailbox_number, true);
                         return;
                     }
@@ -809,6 +827,7 @@ where
                 _ => {}
             }
         }
+        /* disable mailbox interrupt */
         self.write_imask_bit(mailbox_number, false);
         return;
     }
@@ -876,7 +895,6 @@ where
         }
         Ok(())
     }
-
 }
 
 /// Interface to the CAN transmitter part.

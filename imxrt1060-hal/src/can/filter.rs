@@ -208,6 +208,4 @@ impl From<Mask32> for BankConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-
 }
