@@ -233,3 +233,12 @@ impl From<ExtendedId> for Id {
         Id::Extended(id)
     }
 }
+
+impl Id {
+    pub fn as_raw(&self) -> u32 {
+        match self {
+            Self::Standard(id) => id.as_raw() as u32,
+            Self::Extended(id) => id.as_raw(),
+        }
+    }
+}

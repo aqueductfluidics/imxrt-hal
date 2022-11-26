@@ -13,7 +13,7 @@ use crate::iomuxc::consts::{Unsigned, U1, U2};
 use crate::ral;
 
 use core::cmp::Ord;
-use core::convert::{Infallible, TryInto};
+use core::convert::Infallible;
 use core::marker::PhantomData;
 
 /// Error that indicates that an incoming message has been lost due to buffer overrun.
@@ -153,11 +153,32 @@ impl From<&MailboxData> for MailboxDataInfo {
     }
 }
 
-const FLEXCAN_MB_CODE_TX_INACTIVE: u32 = ((8) & 0x0000000F) << 24;
-const FLEXCAN_MB_CODE_TX_ONCE: u32 = ((0x0C) & 0x0000000F) << 24;
-const FLEXCAN_MB_CODE_RX_EMPTY: u32 = ((4) & 0x0000000F) << 24;
+impl From<&Frame> for MailboxData {
+    fn from(f: &Frame) -> Self {
+        Self {
+            code: 0x00,
+            id: f.id.to_id().as_raw(),
+            data: f.data.bytes.into(),
+            mailbox_number: 0,
+        }
+    }
+}
 
-const FLEXCAN_MB_CODE_TX_INACTIVE_U8: u8 = 0b1000;
+const FLEXCAN_MB_CS_CODE_MASK: u32 = 0x0F000000;
+
+const FLEXCAN_MB_CODE_RX_INACTIVE: u8 = 0b0000;
+const FLEXCAN_MB_CODE_RX_EMPTY: u8 = 0b0100;
+const FLEXCAN_MB_CODE_RX_FULL: u8 = 0b0010;
+const FLEXCAN_MB_CODE_RX_OVERRUN: u8 = 0b0110;
+const FLEXCAN_MB_CODE_RX_BUSY: u8 = 0b0001;
+
+const FLEXCAN_MB_CODE_TX_INACTIVE: u8 = 0b1000;
+const FLEXCAN_MB_CODE_TX_ONCE: u8 = 0b1100;
+
+#[inline]
+fn to_flexcan_mb_cs_code(status: u8) -> u32 {
+    ((status as u32) & 0x0000000F) << 24
+}
 
 impl<M> CAN<M>
 where
@@ -565,8 +586,8 @@ where
             this.write_imask(0);
 
             for i in 0..this.get_max_mailbox() {
-                this._write_mailbox(i, Some(0), Some(0), Some(0), Some(0));
-                this._write_mailbox_rximr(i, Some(0x00));
+                this.write_mailbox(i, Some(0), Some(0), Some(0), Some(0));
+                this.write_mailbox_rximr(i, Some(0x00));
             }
 
             write_reg!(ral::can, this.reg, RXMGMASK, 0);
@@ -578,24 +599,27 @@ where
             if enabled {
                 modify_reg!(ral::can, this.reg, MCR, RFEN: RFEN_1);
                 while ral::read_reg!(ral::can, this.reg, MCR, RFEN != RFEN_1) {}
-                log::info!("mailbox_offset: {:?}", this.mailbox_offset());
                 for i in this.mailbox_offset()..max_mailbox {
-                    log::info!("FIFO TX MB: {:?}", i);
-                    this._write_mailbox(i, Some(FLEXCAN_MB_CODE_TX_INACTIVE), None, None, None);
+                    this.write_mailbox(
+                        i,
+                        Some(to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_INACTIVE)),
+                        None,
+                        None,
+                        None,
+                    );
                     this.enable_mailbox_interrupt(i, true);
                 }
             } else {
                 for i in 0..max_mailbox {
                     if i < max_mailbox / 2 {
-                        log::info!("RX MB: {:?}", i);
-                        let code = FLEXCAN_MB_CODE_RX_EMPTY | 0x00400000 | {
+                        let code = to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_RX_EMPTY) | 0x00400000 | {
                             if i < max_mailbox / 4 {
                                 0
                             } else {
                                 0x00200000
                             }
                         };
-                        this._write_mailbox(i, Some(code), None, None, None);
+                        this.write_mailbox(i, Some(code), None, None, None);
                         let eacen = read_reg!(ral::can, this.reg, CTRL2, EACEN == EACEN_1);
                         let rximr = 0_32 | {
                             if eacen {
@@ -604,12 +628,11 @@ where
                                 0
                             }
                         };
-                        this._write_mailbox_rximr(i, Some(rximr));
+                        this.write_mailbox_rximr(i, Some(rximr));
                     } else {
-                        log::info!("TX MB: {:?}", i);
-                        this._write_mailbox(
+                        this.write_mailbox(
                             i,
-                            Some(FLEXCAN_MB_CODE_TX_INACTIVE),
+                            Some(to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_INACTIVE)),
                             Some(0),
                             Some(0),
                             Some(0),
@@ -643,30 +666,22 @@ where
     }
 
     fn fifo_enabled(&self) -> bool {
-        // let x = ral::read_reg!(ral::can, self.reg, MCR);
-        // log::info!("MCR {:X}", x);
-        let fifo_enabled = ral::read_reg!(ral::can, self.reg, MCR, RFEN == RFEN_1);
-        // log::info!("fifo_enabled {:?}", fifo_enabled);
-        fifo_enabled
+        ral::read_reg!(ral::can, self.reg, MCR, RFEN == RFEN_1)
     }
 
     fn mailbox_offset(&self) -> u8 {
         if self.fifo_enabled() {
             let max_mailbox = self.get_max_mailbox() as u32;
             let num_rx_fifo_filters = (read_reg!(ral::can, self.reg, CTRL2, RFFN) + 1) * 2;
-            let remaining_mailboxes =
-                max_mailbox - 6_u32 - num_rx_fifo_filters;
+            let remaining_mailboxes = max_mailbox - 6_u32 - num_rx_fifo_filters;
             /* return offset MB position after FIFO area */
             if max_mailbox < max_mailbox - remaining_mailboxes {
-                // log::info!("mailbox_offset 1 {:?}", max_mailbox as u8);
                 max_mailbox as u8
             } else {
-                // log::info!("mailbox_offset 2 {:?}", (max_mailbox - remaining_mailboxes) as u8);
                 (max_mailbox - remaining_mailboxes) as u8
             }
         } else {
             /* return offset 0 since FIFO is disabled */
-            // log::info!("mailbox_offset 3 {:?}", 0);
             0
         }
     }
@@ -687,22 +702,22 @@ where
         Some(())
     }
 
-    fn _mailbox_number_to_address(&self, mailbox_number: u8) -> u32 {
+    fn mailbox_number_to_address(&self, mailbox_number: u8) -> u32 {
         self.base_address() + 0x80_u32 + (mailbox_number as u32 * 0x10_u32)
     }
 
-    fn _mailbox_number_to_rximr_address(&self, mailbox_number: u8) -> u32 {
+    fn mailbox_number_to_rximr_address(&self, mailbox_number: u8) -> u32 {
         self.base_address() + 0x880_u32 + (mailbox_number as u32 * 0x4_u32)
     }
 
-    fn _read_mailbox_code(&mut self, mailbox_number: u8) -> Option<u8> {
-        let mailbox_addr = self._mailbox_number_to_address(mailbox_number);
+    fn read_mailbox_code(&mut self, mailbox_number: u8) -> Option<u8> {
+        let mailbox_addr = self.mailbox_number_to_address(mailbox_number);
         let code = unsafe { core::ptr::read_volatile(mailbox_addr as *const u32) };
         Some(((code & 0x0F000000_u32) >> 24) as u8)
     }
 
-    fn _read_mailbox(&mut self, mailbox_number: u8) -> Option<MailboxData> {
-        let mailbox_addr = self._mailbox_number_to_address(mailbox_number);
+    fn read_mailbox(&mut self, mailbox_number: u8) -> Option<MailboxData> {
+        let mailbox_addr = self.mailbox_number_to_address(mailbox_number);
 
         if (self.read_imask() & (1_u64 << mailbox_number)) != 0 {
             return None;
@@ -718,7 +733,7 @@ where
                 None
             }
             // full or overrun
-            0b0010_u8 | 0b0110_u8 => {
+            FLEXCAN_MB_CODE_RX_FULL | FLEXCAN_MB_CODE_RX_OVERRUN => {
                 let id =
                     unsafe { core::ptr::read_volatile((mailbox_addr + 0x4_u32) as *const u32) };
                 let data0 =
@@ -734,9 +749,9 @@ where
                     data[7 - i] = (data1 >> (8 * i)) as u8;
                 }
 
-                self._write_mailbox(
+                self.write_mailbox(
                     mailbox_number,
-                    Some(FLEXCAN_MB_CODE_RX_EMPTY),
+                    Some(to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_RX_EMPTY)),
                     None,
                     None,
                     None,
@@ -755,7 +770,7 @@ where
         }
     }
 
-    fn _write_mailbox(
+    fn write_mailbox(
         &self,
         mailbox_number: u8,
         code: Option<u32>,
@@ -763,7 +778,7 @@ where
         word0: Option<u32>,
         word1: Option<u32>,
     ) {
-        let mailbox_addr = self._mailbox_number_to_address(mailbox_number);
+        let mailbox_addr = self.mailbox_number_to_address(mailbox_number);
         if let Some(code) = code {
             unsafe { core::ptr::write_volatile((mailbox_addr + 0_u32) as *mut u32, code) };
         }
@@ -778,29 +793,66 @@ where
         }
     }
 
-    fn _write_tx_mailbox(&mut self, mailbox_number: u8, id: u32, word0: u32, word1: u32) {
+    fn _write_mailbox_2(
+        &self,
+        mailbox_number: u8,
+        code: Option<u32>,
+        id: Option<u32>,
+        data: Option<[u8; 8]>,
+    ) {
+        let mailbox_addr = self.mailbox_number_to_address(mailbox_number);
+        if let Some(code) = code {
+            unsafe { core::ptr::write_volatile((mailbox_addr + 0_u32) as *mut u32, code) };
+        }
+        if let Some(id) = id {
+            unsafe { core::ptr::write_volatile((mailbox_addr + 0x4_u32) as *mut u32, id) };
+        }
+        if let Some(data) = data {
+            let word0 = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
+            let word1 = u32::from_be_bytes([data[4], data[5], data[6], data[7]]);
+            unsafe { core::ptr::write_volatile((mailbox_addr + 0x8_u32) as *mut u32, word0) };
+            unsafe { core::ptr::write_volatile((mailbox_addr + 0xC_u32) as *mut u32, word1) };
+        }
+    }
+
+    fn write_tx_mailbox(&mut self, mailbox_number: u8, id: u32, word0: u32, word1: u32) {
         self.write_iflag_bit(mailbox_number);
         let mut code: u32 = 0x00;
-        self._write_mailbox(
+        self.write_mailbox(
             mailbox_number,
-            Some(FLEXCAN_MB_CODE_TX_INACTIVE),
+            Some(to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_INACTIVE)),
             None,
             None,
             None,
         );
-        self._write_mailbox(
+        self.write_mailbox(
             mailbox_number,
             None,
             Some((id & 0x000007FF) << 18),
             Some(word0),
             Some(word1),
         );
-        code |= 8 << 16 | FLEXCAN_MB_CODE_TX_ONCE;
-        self._write_mailbox(mailbox_number, Some(code), None, None, None);
+        code |= 8 << 16 | to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_ONCE);
+        self.write_mailbox(mailbox_number, Some(code), None, None, None);
     }
 
-    fn _write_mailbox_rximr(&self, mailbox_number: u8, rximr: Option<u32>) {
-        let mailbox_rximr_addr = self._mailbox_number_to_rximr_address(mailbox_number);
+    fn write_tx_mailbox_2(&mut self, mailbox_number: u8, id: u32, data: [u8; 8]) {
+        self.write_iflag_bit(mailbox_number);
+        let mut code: u32 = 0x00;
+        self.write_mailbox(
+            mailbox_number,
+            Some(to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_INACTIVE)),
+            None,
+            None,
+            None,
+        );
+        self._write_mailbox_2(mailbox_number, None, Some(id), Some(data));
+        code |= 8 << 16 | to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_ONCE);
+        self.write_mailbox(mailbox_number, Some(code), None, None, None);
+    }
+
+    fn write_mailbox_rximr(&self, mailbox_number: u8, rximr: Option<u32>) {
+        let mailbox_rximr_addr = self.mailbox_number_to_rximr_address(mailbox_number);
         if let Some(rximr) = rximr {
             unsafe { core::ptr::write_volatile((mailbox_rximr_addr) as *mut u32, rximr) };
         }
@@ -816,7 +868,7 @@ where
             self.write_imask_bit(mailbox_number, true);
             return;
         } else {
-            match self._read_mailbox(mailbox_number) {
+            match self.read_mailbox(mailbox_number) {
                 Some(d) => {
                     if (d.code & 0x0F000000) >> 3 != 0 {
                         /* transmit interrupt keeper */
@@ -832,7 +884,7 @@ where
         return;
     }
 
-    pub fn read_mailbox(&mut self) -> Option<()> {
+    pub fn read_mailboxes(&mut self) -> Option<()> {
         let mut iflag: u64;
         let mut cycle_limit: u8 = 3;
         let offset = self.mailbox_offset();
@@ -865,7 +917,7 @@ where
                 self._mailbox_reader_index += 1;
                 continue; /* don't read interrupt enabled mailboxes */
             }
-            match self._read_mailbox(self._mailbox_reader_index) {
+            match self.read_mailbox(self._mailbox_reader_index) {
                 Some(mailbox_data) => {
                     log::info!(
                         "RX Data: {:?}, {:?}",
@@ -880,15 +932,47 @@ where
         None
     }
 
+    pub fn handle_interrupt(&mut self) {
+        let imask = self.read_imask();
+        let iflag = self.read_iflag();
+
+        /* if DMA is disabled, ONLY THEN you can handle FIFO in ISR */
+        if self.fifo_enabled() & (imask & 0x00000020 != 0) & (iflag & 0x00000020 != 0) {
+            if let Some(mailbox_data) = self.read_mailbox(0) {
+                self.write_iflag_bit(5);
+                if iflag & 0x00000040 != 0 {
+                    self.write_iflag_bit(6);
+                }
+                if iflag & 0x00000080 != 0 {
+                    self.write_iflag_bit(7);
+                }
+                log::info!(
+                    "RX Data: {:?}, {:?}",
+                    &mailbox_data,
+                    MailboxDataInfo::from(&mailbox_data)
+                );
+            }
+        }
+    }
+
     pub fn transmit(&mut self, frame: &Frame) -> nb::Result<(), Infallible> {
+        for i in self.mailbox_offset()..self.get_max_mailbox() {
+            if let Some(code) = self.read_mailbox_code(i) {
+                if code == FLEXCAN_MB_CODE_TX_INACTIVE {
+                    let id = frame.id.to_id().as_raw();
+                    self.write_tx_mailbox_2(i, id, frame.data.bytes);
+                    return Ok(());
+                }
+            }
+        }
         Ok(())
     }
 
     pub fn write(&mut self, id: u32, word0: u32, word1: u32) -> nb::Result<(), Infallible> {
         for i in self.mailbox_offset()..self.get_max_mailbox() {
-            if let Some(code) = self._read_mailbox_code(i) {
-                if code == FLEXCAN_MB_CODE_TX_INACTIVE_U8 {
-                    self._write_tx_mailbox(i, id, word0, word1);
+            if let Some(code) = self.read_mailbox_code(i) {
+                if code == FLEXCAN_MB_CODE_TX_INACTIVE {
+                    self.write_tx_mailbox(i, id, word0, word1);
                     return Ok(());
                 }
             }
