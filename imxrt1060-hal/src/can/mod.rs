@@ -166,15 +166,18 @@ impl From<&Frame> for MailboxData {
 
 const FLEXCAN_MB_CS_CODE_MASK: u32 = 0x0F000000;
 
-const FLEXCAN_MB_CODE_RX_INACTIVE: u8 = 0b0000;
-const FLEXCAN_MB_CODE_RX_EMPTY: u8 = 0b0100;
-const FLEXCAN_MB_CODE_RX_FULL: u8 = 0b0010;
-const FLEXCAN_MB_CODE_RX_OVERRUN: u8 = 0b0110;
-const FLEXCAN_MB_CODE_RX_BUSY: u8 = 0b0001;
+#[repr(u8)]
+pub enum FlexCanMailboxCSCode {
+    RxInactive = 0b0000,
+    RxEmpty = 0b0100,
+    RxFull = 0b0010,
+    RxOverrun = 0b0110,
+    RxBusy = 0b0001,
 
-const FLEXCAN_MB_CODE_TX_INACTIVE: u8 = 0b1000;
-const FLEXCAN_MB_CODE_TX_ABORT: u8 = 0b1001;
-const FLEXCAN_MB_CODE_TX_ONCE: u8 = 0b1100;
+    TxInactive = 0b1000,
+    TxAbort = 0b1001,
+    TxOnce = 0b1100,
+}
 
 #[inline]
 fn to_flexcan_mb_cs_code(status: u8) -> u32 {
@@ -608,7 +611,9 @@ where
                 for i in this.mailbox_offset()..max_mailbox {
                     this.write_mailbox(
                         i,
-                        Some(to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_INACTIVE)),
+                        Some(to_flexcan_mb_cs_code(
+                            FlexCanMailboxCSCode::TxInactive as u8,
+                        )),
                         None,
                         None,
                         None,
@@ -618,13 +623,15 @@ where
             } else {
                 for i in 0..max_mailbox {
                     if i < max_mailbox / 2 {
-                        let code = to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_RX_EMPTY) | 0x00400000 | {
-                            if i < max_mailbox / 4 {
-                                0
-                            } else {
-                                0x00200000
-                            }
-                        };
+                        let code = to_flexcan_mb_cs_code(FlexCanMailboxCSCode::RxEmpty as u8)
+                            | 0x00400000
+                            | {
+                                if i < max_mailbox / 4 {
+                                    0
+                                } else {
+                                    0x00200000
+                                }
+                            };
                         this.write_mailbox(i, Some(code), None, None, None);
                         let eacen = read_reg!(ral::can, this.reg, CTRL2, EACEN == EACEN_1);
                         let rximr = 0_32 | {
@@ -638,7 +645,9 @@ where
                     } else {
                         this.write_mailbox(
                             i,
-                            Some(to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_INACTIVE)),
+                            Some(to_flexcan_mb_cs_code(
+                                FlexCanMailboxCSCode::TxInactive as u8,
+                            )),
                             Some(0),
                             Some(0),
                             Some(0),
@@ -739,7 +748,9 @@ where
                 None
             }
             // full or overrun
-            FLEXCAN_MB_CODE_RX_FULL | FLEXCAN_MB_CODE_RX_OVERRUN => {
+            c if (c == FlexCanMailboxCSCode::RxFull as u8)
+                | (c == FlexCanMailboxCSCode::RxOverrun as u8) =>
+            {
                 let id =
                     unsafe { core::ptr::read_volatile((mailbox_addr + 0x4_u32) as *const u32) };
                 let data0 =
@@ -757,7 +768,7 @@ where
 
                 self.write_mailbox(
                     mailbox_number,
-                    Some(to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_RX_EMPTY)),
+                    Some(to_flexcan_mb_cs_code(FlexCanMailboxCSCode::RxEmpty as u8)),
                     None,
                     None,
                     None,
@@ -826,7 +837,9 @@ where
         let mut code: u32 = 0x00;
         self.write_mailbox(
             mailbox_number,
-            Some(to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_INACTIVE)),
+            Some(to_flexcan_mb_cs_code(
+                FlexCanMailboxCSCode::TxInactive as u8,
+            )),
             None,
             None,
             None,
@@ -838,7 +851,7 @@ where
             Some(word0),
             Some(word1),
         );
-        code |= 8 << 16 | to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_ONCE);
+        code |= 8 << 16 | to_flexcan_mb_cs_code(FlexCanMailboxCSCode::TxOnce as u8);
         self.write_mailbox(mailbox_number, Some(code), None, None, None);
     }
 
@@ -847,13 +860,15 @@ where
         let mut code: u32 = 0x00;
         self.write_mailbox(
             mailbox_number,
-            Some(to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_INACTIVE)),
+            Some(to_flexcan_mb_cs_code(
+                FlexCanMailboxCSCode::TxInactive as u8,
+            )),
             None,
             None,
             None,
         );
         self._write_mailbox_2(mailbox_number, None, Some(id), Some(data));
-        code |= 8 << 16 | to_flexcan_mb_cs_code(FLEXCAN_MB_CODE_TX_ONCE);
+        code |= 8 << 16 | to_flexcan_mb_cs_code(FlexCanMailboxCSCode::TxOnce as u8);
         self.write_mailbox(mailbox_number, Some(code), None, None, None);
     }
 
@@ -964,7 +979,7 @@ where
     pub fn transmit(&mut self, frame: &Frame) -> nb::Result<(), Infallible> {
         for i in self.mailbox_offset()..self.get_max_mailbox() {
             if let Some(code) = self.read_mailbox_code(i) {
-                if code == FLEXCAN_MB_CODE_TX_INACTIVE {
+                if code == FlexCanMailboxCSCode::TxInactive as u8 {
                     let id = frame.id.to_id().as_raw();
                     self.write_tx_mailbox_2(i, id, frame.data.bytes);
                     return Ok(());
@@ -977,7 +992,7 @@ where
     pub fn write(&mut self, id: u32, word0: u32, word1: u32) -> nb::Result<(), Infallible> {
         for i in self.mailbox_offset()..self.get_max_mailbox() {
             if let Some(code) = self.read_mailbox_code(i) {
-                if code == FLEXCAN_MB_CODE_TX_INACTIVE {
+                if code == FlexCanMailboxCSCode::TxInactive as u8 {
                     self.write_tx_mailbox(i, id, word0, word1);
                     return Ok(());
                 }
