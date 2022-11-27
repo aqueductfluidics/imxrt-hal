@@ -173,11 +173,17 @@ const FLEXCAN_MB_CODE_RX_OVERRUN: u8 = 0b0110;
 const FLEXCAN_MB_CODE_RX_BUSY: u8 = 0b0001;
 
 const FLEXCAN_MB_CODE_TX_INACTIVE: u8 = 0b1000;
+const FLEXCAN_MB_CODE_TX_ABORT: u8 = 0b1001;
 const FLEXCAN_MB_CODE_TX_ONCE: u8 = 0b1100;
 
 #[inline]
 fn to_flexcan_mb_cs_code(status: u8) -> u32 {
     ((status as u32) & 0x0000000F) << 24
+}
+
+#[inline]
+fn from_flexcan_mb_cs_code(code: u32) -> u8 {
+    ((code & FLEXCAN_MB_CS_CODE_MASK) >> 24) as u8
 }
 
 impl<M> CAN<M>
