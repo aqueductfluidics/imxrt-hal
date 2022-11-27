@@ -3,9 +3,11 @@ pub mod filter;
 mod frame;
 mod id;
 mod interrupt;
+mod isotp;
 
 pub use frame::{Data, Frame, FramePriority};
 pub use id::{ExtendedId, Id, IdReg, StandardId};
+pub use isotp::{IsoTPBuilder, IsoTP};
 use ral::{modify_reg, read_reg, write_reg};
 
 use crate::ccm;

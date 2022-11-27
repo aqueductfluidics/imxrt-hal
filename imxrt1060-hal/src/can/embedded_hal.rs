@@ -14,11 +14,8 @@ where
     type Error = OverrunError;
 
     fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
-        let data: [u8; 8] = [255, 255, 255, 255, 255, 255, 255, 255];
-        let id = StandardId::new(0).unwrap();
-
         match self.transmit(frame) {
-            Ok(status) => Ok(Some(Frame::new_data(id, Data::new(&data).unwrap()))),
+            Ok(_status) => Ok(Some(frame.clone())),
             Err(nb::Error::WouldBlock) => Err(nb::Error::WouldBlock),
             Err(nb::Error::Other(e)) => match e {},
         }
