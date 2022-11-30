@@ -210,6 +210,12 @@ pub enum Id {
     Extended(ExtendedId),
 }
 
+impl Default for Id {
+    fn default() -> Self {
+        Id::Standard(StandardId::new(0).unwrap())
+    }
+}
+
 impl From<StandardId> for Id {
     #[inline]
     fn from(id: StandardId) -> Self {
