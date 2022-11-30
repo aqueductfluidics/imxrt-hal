@@ -3,18 +3,15 @@ pub mod filter;
 mod frame;
 mod id;
 mod interrupt;
-mod isotp;
 
 pub use frame::{Data, Frame, FramePriority};
 pub use id::{ExtendedId, Id, IdReg, StandardId};
-pub use isotp::{IsoTPBuilder, IsoTP};
 use ral::{modify_reg, read_reg, write_reg};
 
 use crate::ccm;
 use crate::iomuxc::consts::{Unsigned, U1, U2};
 use crate::ral;
 
-use core::cmp::Ord;
 use core::convert::Infallible;
 use core::marker::PhantomData;
 
@@ -1009,53 +1006,3 @@ pub struct Tx<I> {
     _can: PhantomData<I>,
 }
 
-#[inline]
-const fn ok_mask(idx: usize) -> u32 {
-    0x02 << (8 * idx)
-}
-
-#[inline]
-const fn abort_mask(idx: usize) -> u32 {
-    0x80 << (8 * idx)
-}
-
-/// Identifies one of the two receive FIFOs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
-pub enum Fifo {
-    Fifo0 = 0,
-    Fifo1 = 1,
-}
-
-/// Identifies one of the three transmit mailboxes.
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
-pub enum Mailbox {
-    /// Transmit mailbox 0
-    Mailbox0 = 0,
-    /// Transmit mailbox 1
-    Mailbox1 = 1,
-    /// Transmit mailbox 2
-    Mailbox2 = 2,
-}
-
-/// Contains information about a frame enqueued for transmission via [`Can::transmit`] or
-/// [`Tx::transmit`].
-pub struct TransmitStatus {
-    dequeued_frame: Option<Frame>,
-    mailbox: Mailbox,
-}
-
-impl TransmitStatus {
-    /// Returns the lower-priority frame that was dequeued to make space for the new frame.
-    #[inline]
-    pub fn dequeued_frame(&self) -> Option<&Frame> {
-        self.dequeued_frame.as_ref()
-    }
-
-    /// Returns the [`Mailbox`] the frame was enqueued in.
-    #[inline]
-    pub fn mailbox(&self) -> Mailbox {
-        self.mailbox
-    }
-}

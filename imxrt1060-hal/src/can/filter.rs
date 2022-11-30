@@ -1,8 +1,6 @@
 //! Filter bank API.
 
-use core::marker::PhantomData;
-
-use super::{ExtendedId, Fifo, Id, StandardId};
+use super::{ExtendedId, Id, StandardId};
 
 const F32_RTR: u32 = 0b010; // set the RTR bit to match remote frames
 const F32_IDE: u32 = 0b100; // set the IDE bit to match extended identifiers
@@ -207,5 +205,5 @@ impl From<Mask32> for BankConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 }

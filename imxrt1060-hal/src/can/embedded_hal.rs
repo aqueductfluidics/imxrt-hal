@@ -1,6 +1,6 @@
 //! `embedded_hal` trait impls.
 
-use super::{Data, ExtendedId, Frame, Id, IdReg, OverrunError, StandardId, CAN};
+use super::{Data, ExtendedId, Frame, Id, OverrunError, StandardId, CAN};
 
 use crate::iomuxc::consts::Unsigned;
 use embedded_hal::can;

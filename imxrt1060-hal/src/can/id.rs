@@ -1,10 +1,4 @@
-use crate::ccm;
-use crate::iomuxc::consts::{Unsigned, U1, U2};
-use crate::ral;
-
 use core::cmp::{Ord, Ordering};
-use core::marker::PhantomData;
-use core::ptr::NonNull;
 
 /// Identifier of a CAN message.
 ///
@@ -41,10 +35,6 @@ impl IdReg {
     /// Panics for IDs outside the allowed range.
     pub fn new_extended(id: ExtendedId) -> IdReg {
         Self(id.as_raw() << Self::EXTENDED_SHIFT | Self::IDE_MASK)
-    }
-
-    fn from_register(reg: u32) -> IdReg {
-        Self(reg & 0xFFFF_FFFE)
     }
 
     /// Sets the remote transmission (RTR) flag. This marks the identifier as
