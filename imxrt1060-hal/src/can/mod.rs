@@ -134,7 +134,7 @@ pub struct MailboxData {
 pub struct MailboxDataInfo {
     pub remote: bool,
     pub extended: bool,
-    pub id: u32,
+    pub id: Id,
     pub length: u8,
     pub timestamp: u32,
 }
@@ -142,10 +142,16 @@ pub struct MailboxDataInfo {
 impl From<&MailboxData> for MailboxDataInfo {
     fn from(d: &MailboxData) -> Self {
         let extended = d.code & (1_u32 << 21) == 1;
+        let id = (d.id & 0x1FFFFFFF_u32) >> (if extended { 0 } else { 18 });
+        let id: Id = if extended {
+            ExtendedId::new(id).unwrap().into()
+        } else {
+            StandardId::new(id as u16).unwrap().into()
+        };
         Self {
             remote: d.code & (1_u32 << 20) == 1,
             extended,
-            id: (d.id & 0x1FFFFFFF_u32) >> (if extended { 0 } else { 18 }),
+            id: id,
             length: ((d.code & 0xF0000_u32) >> 16) as u8,
             timestamp: d.code & 0xFFFF_u32,
         }
@@ -952,11 +958,11 @@ where
         None
     }
 
-    pub fn handle_interrupt(&mut self) {
+    pub fn handle_interrupt(&mut self) -> Option<MailboxData> {
         let imask = self.read_imask();
         let iflag = self.read_iflag();
 
-        /* if DMA is disabled, ONLY THEN you can handle FIFO in ISR */
+        /* if DMA is disabled, ONLY THEN can you handle FIFO in ISR */
         if self.fifo_enabled() & (imask & 0x00000020 != 0) & (iflag & 0x00000020 != 0) {
             if let Some(mailbox_data) = self.read_mailbox(0) {
                 self.write_iflag_bit(5);
@@ -966,13 +972,11 @@ where
                 if iflag & 0x00000080 != 0 {
                     self.write_iflag_bit(7);
                 }
-                log::info!(
-                    "RX Data: {:?}, {:?}",
-                    &mailbox_data,
-                    MailboxDataInfo::from(&mailbox_data)
-                );
+                return Some(mailbox_data);
             }
         }
+
+        None
     }
 
     pub fn transmit(&mut self, frame: &Frame) -> nb::Result<(), Infallible> {
@@ -1005,4 +1009,3 @@ where
 pub struct Tx<I> {
     _can: PhantomData<I>,
 }
-
