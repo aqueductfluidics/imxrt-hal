@@ -2,6 +2,21 @@
 
 use super::{ExtendedId, Id, StandardId};
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum FlexCanIde {
+    None = 0,
+    Ext = 1,
+    Rtr = 2, 
+    Std = 3,
+    Inactive
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum FlexCanFlten {
+    AcceptAll = 0,
+    RejectAll = 1,
+}
+
 const F32_RTR: u32 = 0b010; // set the RTR bit to match remote frames
 const F32_IDE: u32 = 0b100; // set the IDE bit to match extended identifiers
 const F16_RTR: u16 = 0b10000;

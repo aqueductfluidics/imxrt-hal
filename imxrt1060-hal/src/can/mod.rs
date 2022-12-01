@@ -13,6 +13,7 @@ use crate::iomuxc::consts::{Unsigned, U1, U2};
 use crate::ral;
 
 use core::convert::Infallible;
+use core::f32::consts::E;
 use core::marker::PhantomData;
 
 /// Error that indicates that an incoming message has been lost due to buffer overrun.
@@ -192,6 +193,15 @@ fn to_flexcan_mb_cs_code(status: u8) -> u32 {
 #[inline]
 fn from_flexcan_mb_cs_code(code: u32) -> u8 {
     ((code & FLEXCAN_MB_CS_CODE_MASK) >> 24) as u8
+}
+
+#[inline]
+fn constrain(value: usize, min: usize, max: usize) -> usize {
+    match value {
+        v if v < min => min,
+        v if v > max => max,
+        _ => value,
+    }
 }
 
 impl<M> CAN<M>
@@ -664,8 +674,167 @@ where
         })
     }
 
-    fn disable_fifo(&mut self) {
+    pub fn disable_fifo(&mut self) {
         self.enable_fifo(false);
+    }
+
+    pub fn set_fifo_reject_all(&mut self) {
+        self.set_fifo_filter_mask(filter::FlexCanFlten::RejectAll)
+    }
+
+    pub fn set_fifo_accept_all(&mut self) {
+        self.set_fifo_filter_mask(filter::FlexCanFlten::AcceptAll)
+    }
+
+    fn set_fifo_filter_mask(&mut self, enable: filter::FlexCanFlten) {
+        if !self.fifo_enabled() {
+            return;
+        }
+        let max_fifo_filters = (read_reg!(ral::can, self.reg, CTRL2, RFFN) + 1) * 8;
+        self.while_frozen(|this| {
+            if enable == filter::FlexCanFlten::AcceptAll {
+                let offset = this.mailbox_offset();
+                for i in 0..max_fifo_filters {
+                    this.write_mailbox_idflt_tab(i as u8, Some(0x00));
+                    if i < constrain(offset as usize, 0, 32) as u32 {
+                        this.write_mailbox_rximr(i as u8, Some(0x00));
+                    }
+                }
+                write_reg!(ral::can, this.reg, RXFGMASK, 0x00);
+            } else {
+                match read_reg!(ral::can, this.reg, MCR, IDAM) {
+                    ral::can::MCR::IDAM::RW::IDAM_0 => {
+                        let offset = this.mailbox_offset();
+                        for i in 0..max_fifo_filters {
+                            this.write_mailbox_idflt_tab(i as u8, Some(0xFFFFFFFF));
+                            if i < constrain(offset as usize, 0, 32) as u32 {
+                                this.write_mailbox_rximr(i as u8, Some(0x3FFFFFFF));
+                            }
+                        }
+                        write_reg!(ral::can, this.reg, RXFGMASK, 0x3FFFFFFF);
+                    }
+                    ral::can::MCR::IDAM::RW::IDAM_1 => {
+                        let offset = this.mailbox_offset();
+                        for i in 0..max_fifo_filters {
+                            this.write_mailbox_idflt_tab(i as u8, Some(0xFFFFFFFF));
+                            if i < constrain(offset as usize, 0, 32) as u32 {
+                                this.write_mailbox_rximr(i as u8, Some(0x7FFF7FFF));
+                            }
+                        }
+                        write_reg!(ral::can, this.reg, RXFGMASK, 0x7FFF7FFF);
+                    }
+                    ral::can::MCR::IDAM::RW::IDAM_2 => {}
+                    ral::can::MCR::IDAM::RW::IDAM_3 => {}
+                    _ => {}
+                }
+            }
+        })
+    }
+
+    pub fn set_fifo_filter(
+        &mut self,
+        filter_id: u8,
+        id: u32,
+        ide: filter::FlexCanIde,
+        remote: filter::FlexCanIde,
+    ) {
+        if !self.fifo_enabled() {
+            return;
+        }
+        let max_fifo_filters = (read_reg!(ral::can, self.reg, CTRL2, RFFN) + 1) * 8;
+        if filter_id as u32 >= max_fifo_filters {
+            return;
+        }
+        self.while_frozen(|this| match read_reg!(ral::can, this.reg, MCR, IDAM) {
+            ral::can::MCR::IDAM::RW::IDAM_0 => {
+                let mask: u32 = if ide == filter::FlexCanIde::Ext {
+                    ((((id) ^ (id)) ^ 0x7FF) << 19) | 0xC0000001
+                } else {
+                    ((((id) ^ (id)) ^ 0x1FFFFFFF) << 1) | 0xC0000001
+                };
+                let filter: u32 = (if ide == filter::FlexCanIde::Ext { 1 } else { 0 } << 30)
+                    | (if remote == filter::FlexCanIde::Rtr {
+                        1
+                    } else {
+                        0
+                    } << 31)
+                    | (if ide == filter::FlexCanIde::Ext {
+                        (id & 0x1FFFFFFF) << 1
+                    } else {
+                        ((id) & 0x000007FF << 18) << 1
+                    });
+                this.write_mailbox_idflt_tab(filter_id, Some(filter));
+                let offset = this.mailbox_offset();
+                if filter_id < constrain(offset as usize, 0, 32) as u8 {
+                    this.write_mailbox_rximr(filter_id, Some(mask));
+                }
+                write_reg!(ral::can, this.reg, RXFGMASK, 0x3FFFFFFF);
+            }
+            ral::can::MCR::IDAM::RW::IDAM_1 => {
+                let mut mask: u32 = if ide == filter::FlexCanIde::Ext {
+                    ((((id) ^ (id)) ^ 0x7FF) << 19)
+                        | if remote == filter::FlexCanIde::Rtr {
+                            1 << 31
+                        } else {
+                            0
+                        }
+                } else {
+                    ((((id) ^ (id)) ^ 0x1FFFFFFF) << 16)
+                        | if remote == filter::FlexCanIde::Rtr {
+                            1 << 31
+                        } else {
+                            0
+                        }
+                };
+                mask |= if ide == filter::FlexCanIde::Ext {
+                    ((((id) ^ (id)) ^ 0x7FF) << 3)
+                        | if remote == filter::FlexCanIde::Rtr {
+                            1 << 15
+                        } else {
+                            0
+                        }
+                } else {
+                    ((((id) ^ (id)) ^ 0x1FFFFFFF) << 0)
+                        | if remote == filter::FlexCanIde::Rtr {
+                            1 << 15
+                        } else {
+                            0
+                        }
+                } & 0xFFFF;
+                mask |= (1 << 30) | (1 << 14);
+                let filter: u32 = (if ide == filter::FlexCanIde::Ext { 1 } else { 0 } << 30)
+                    | (if ide == filter::FlexCanIde::Ext { 1 } else { 0 } << 14)
+                    | (if remote == filter::FlexCanIde::Rtr {
+                        1
+                    } else {
+                        0
+                    } << 31)
+                    | (if remote == filter::FlexCanIde::Rtr {
+                        1
+                    } else {
+                        0
+                    } << 15)
+                    | (if ide == filter::FlexCanIde::Ext {
+                        (id >> (29 - 14)) << 16
+                    } else {
+                        (id & 0x7FF) << 19
+                    })
+                    | (if ide == filter::FlexCanIde::Ext {
+                        (id >> (29 - 14)) << 0
+                    } else {
+                        (id & 0x7FF) << 3
+                    });
+                this.write_mailbox_idflt_tab(filter_id, Some(filter));
+                let offset = this.mailbox_offset();
+                if filter_id < constrain(offset as usize, 0, 32) as u8 {
+                    this.write_mailbox_rximr(filter_id, Some(mask));
+                }
+                write_reg!(ral::can, this.reg, RXFGMASK, 0x7FFF7FFF);
+            }
+            ral::can::MCR::IDAM::RW::IDAM_2 => {}
+            ral::can::MCR::IDAM::RW::IDAM_3 => {}
+            _ => {}
+        })
     }
 
     pub fn enable_fifo_interrupt(&mut self, enabled: bool) {
@@ -728,6 +897,10 @@ where
 
     fn mailbox_number_to_rximr_address(&self, mailbox_number: u8) -> u32 {
         self.base_address() + 0x880_u32 + (mailbox_number as u32 * 0x4_u32)
+    }
+
+    fn mailbox_number_to_idflt_tab_address(&self, mailbox_number: u8) -> u32 {
+        self.base_address() + 0xE0_u32 + (mailbox_number as u32 * 0x4_u32)
     }
 
     fn read_mailbox_code(&mut self, mailbox_number: u8) -> Option<u8> {
@@ -881,6 +1054,13 @@ where
         let mailbox_rximr_addr = self.mailbox_number_to_rximr_address(mailbox_number);
         if let Some(rximr) = rximr {
             unsafe { core::ptr::write_volatile((mailbox_rximr_addr) as *mut u32, rximr) };
+        }
+    }
+
+    fn write_mailbox_idflt_tab(&self, mailbox_number: u8, idflt_tab: Option<u32>) {
+        let mailbox_idflt_tab_addr = self.mailbox_number_to_idflt_tab_address(mailbox_number);
+        if let Some(idflt_tab) = idflt_tab {
+            unsafe { core::ptr::write_volatile((mailbox_idflt_tab_addr) as *mut u32, idflt_tab) };
         }
     }
 
