@@ -13,7 +13,6 @@ use crate::iomuxc::consts::{Unsigned, U1, U2};
 use crate::ral;
 
 use core::convert::Infallible;
-use core::f32::consts::E;
 use core::marker::PhantomData;
 
 /// Error that indicates that an incoming message has been lost due to buffer overrun.
@@ -196,7 +195,7 @@ fn from_flexcan_mb_cs_code(code: u32) -> u8 {
 }
 
 #[inline]
-fn constrain(value: usize, min: usize, max: usize) -> usize {
+fn constrain<T: PartialOrd>(value: T, min: T, max: T) -> T {
     match value {
         v if v < min => min,
         v if v > max => max,
