@@ -987,7 +987,7 @@ where
         }
     }
 
-    fn _write_mailbox_2(
+    fn write_mailbox_2(
         &self,
         mailbox_number: u8,
         code: Option<u32>,
@@ -1044,7 +1044,7 @@ where
             None,
             None,
         );
-        self._write_mailbox_2(mailbox_number, None, Some(id), Some(data));
+        self.write_mailbox_2(mailbox_number, None, Some((id & 0x000007FF) << 18), Some(data));
         code |= 8 << 16 | to_flexcan_mb_cs_code(FlexCanMailboxCSCode::TxOnce as u8);
         self.write_mailbox(mailbox_number, Some(code), None, None, None);
     }
