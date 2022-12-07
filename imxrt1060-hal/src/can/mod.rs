@@ -169,6 +169,15 @@ impl From<&Frame> for MailboxData {
     }
 }
 
+impl From<&MailboxData> for Frame {
+    fn from(d: &MailboxData) -> Self {
+        Self {
+            id: IdReg::new(d.id),
+            data: d.data.into(),
+        }
+    }
+}
+
 const FLEXCAN_MB_CS_CODE_MASK: u32 = 0x0F000000;
 
 #[repr(u8)]
@@ -834,6 +843,13 @@ where
             ral::can::MCR::IDAM::RW::IDAM_3 => {}
             _ => {}
         })
+    }
+
+    pub fn set_fifo_filter_2(
+        &mut self,
+        filter: filter::FlexCanFilter
+    ) {
+        self.set_fifo_filter(filter.filter_id, filter.id, filter.ide, filter.remote)
     }
 
     pub fn enable_fifo_interrupt(&mut self, enabled: bool) {

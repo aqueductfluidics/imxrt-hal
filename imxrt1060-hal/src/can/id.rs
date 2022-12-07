@@ -26,6 +26,13 @@ impl IdReg {
     /// Creates a new standard identifier (11bit, Range: 0..0x7FF)
     ///
     /// Panics for IDs outside the allowed range.
+    pub fn new(reg: u32) -> Self {
+        Self(reg)
+    }
+
+    /// Creates a new standard identifier (11bit, Range: 0..0x7FF)
+    ///
+    /// Panics for IDs outside the allowed range.
     pub fn new_standard(id: StandardId) -> Self {
         Self(u32::from(id.as_raw()) << Self::STANDARD_SHIFT)
     }

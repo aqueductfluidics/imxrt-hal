@@ -2,8 +2,9 @@
 
 use super::{ExtendedId, Id, StandardId};
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub enum FlexCanIde {
+    #[default]
     None = 0,
     Ext = 1,
     Rtr = 2, 
@@ -11,10 +12,19 @@ pub enum FlexCanIde {
     Inactive
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub enum FlexCanFlten {
     AcceptAll = 0,
+    #[default]
     RejectAll = 1,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
+pub struct FlexCanFilter {
+    pub filter_id: u8,
+    pub id: u32,
+    pub ide: FlexCanIde,
+    pub remote: FlexCanIde
 }
 
 const F32_RTR: u32 = 0b010; // set the RTR bit to match remote frames
