@@ -1098,7 +1098,6 @@ where
 
     fn write_mailbox_rximr(&self, mailbox_number: u8, rximr: Option<u32>) {
         let mailbox_rximr_addr = self.mailbox_number_to_rximr_address(mailbox_number);
-        // log::info!("Rximr: {:08X}, {}, {:?}", mailbox_rximr_addr, mailbox_number, rximr);
         if let Some(rximr) = rximr {
             unsafe { core::ptr::write_volatile((mailbox_rximr_addr) as *mut u32, rximr) };
         }
@@ -1106,12 +1105,6 @@ where
 
     fn write_mailbox_idflt_tab(&self, mailbox_number: u8, idflt_tab: Option<u32>) {
         let mailbox_idflt_tab_addr = self.mailbox_number_to_idflt_tab_address(mailbox_number);
-        log::info!(
-            "Tab: {:08X}, {}, {:?}",
-            mailbox_idflt_tab_addr,
-            mailbox_number,
-            idflt_tab
-        );
         if let Some(idflt_tab) = idflt_tab {
             unsafe { core::ptr::write_volatile((mailbox_idflt_tab_addr) as *mut u32, idflt_tab) };
         }
