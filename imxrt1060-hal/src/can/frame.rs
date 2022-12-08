@@ -227,6 +227,64 @@ impl PartialEq for Data {
 
 impl Eq for Data {}
 
+#[derive(Debug, Copy, Clone)]
+pub struct Code {
+    // substitute remote request
+    pub(crate) srr: bool,
+    // ID extended
+    pub(crate) ide: bool,
+    // remote
+    pub(crate) rtr: bool,
+    // data length code
+    pub(crate) dlc: u8,
+    // timestamp
+    pub(crate) timestamp: u16,
+}
+
+impl Code {
+    const SRR_SHIFT: u32 = 22;
+    const SRR_MASK: u32 = 0b1_u32 << Self::SRR_SHIFT;
+
+    const IDE_SHIFT: u32 = 21;
+    const IDE_MASK: u32 = 0b1_u32 << Self::IDE_SHIFT;
+
+    const RTR_SHIFT: u32 = 20;
+    const RTR_MASK: u32 = 0b1_u32 << Self::RTR_SHIFT;
+
+    const DLC_SHIFT: u32 = 16;
+    const DLC_MASK: u32 = 0b111_u32 << Self::DLC_SHIFT;
+
+    const TIMESTAMP_SHIFT: u32 = 0;
+    const TIMESTAMP_MASK: u32 = 0xFFFF_u32 << Self::TIMESTAMP_SHIFT;
+
+    #[inline]
+    fn to_reg(&self, frame: &Frame) -> u32 {
+        self.srr() | self.ide() | self.dlc() | self.timestamp()
+    }
+
+    #[inline]
+    fn srr(&self) -> u32 {
+        if self.srr { Self::SRR_MASK } else { 0_u32 }
+    }
+
+    #[inline]
+    fn ide(&self) -> u32 {
+        if self.ide { Self::IDE_MASK } else { 0_u32 }
+    }
+
+    #[inline]
+    fn dlc(&self) -> u32 {
+        (self.dlc as u32) << Self::DLC_SHIFT
+    }
+
+    #[inline]
+    fn timestamp(&self) -> u32 {
+        (self.timestamp as u32) << Self::TIMESTAMP_SHIFT
+    }
+    
+}
+
+
 #[cfg(feature = "unstable-defmt")]
 impl defmt::Format for Data {
     fn format(&self, fmt: defmt::Formatter<'_>) {

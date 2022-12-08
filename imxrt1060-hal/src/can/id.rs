@@ -15,9 +15,9 @@ use core::cmp::{Ord, Ordering};
 pub struct IdReg(u32);
 
 impl IdReg {
-    const STANDARD_SHIFT: u32 = 21;
+    const STANDARD_SHIFT: u32 = 18;
 
-    const EXTENDED_SHIFT: u32 = 3;
+    const EXTENDED_SHIFT: u32 = 1;
 
     const IDE_MASK: u32 = 0x0000_0004;
 
