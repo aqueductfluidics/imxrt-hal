@@ -11,7 +11,6 @@ fn data_greater_remote() {
     let remote_frame = Frame::new_remote(id, 0);
     assert!(data_frame.is_data_frame());
     assert!(remote_frame.is_remote_frame());
-
     assert!(data_frame.priority() > remote_frame.priority());
 }
 

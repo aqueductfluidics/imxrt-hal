@@ -172,7 +172,7 @@ impl From<&Frame> for MailboxData {
 impl From<&MailboxData> for Frame {
     fn from(d: &MailboxData) -> Self {
         Self {
-            id: IdReg::new(d.id),
+            id: IdReg::new(d.code, d.id),
             data: d.data.into(),
         }
     }
@@ -636,7 +636,7 @@ where
             this.write_imask(0);
 
             for i in 0..this.get_max_mailbox() {
-                this.write_mailbox(i, Some(0), Some(0), Some(0), Some(0));
+                this.write_mailbox(i, Some(0), Some(0), Some([0x00; 8]));
                 this.write_mailbox_rximr(i, Some(0x00));
             }
 
@@ -657,7 +657,6 @@ where
                         )),
                         None,
                         None,
-                        None,
                     );
                     this.enable_mailbox_interrupt(i, true);
                 }
@@ -673,7 +672,7 @@ where
                                     0x00200000
                                 }
                             };
-                        this.write_mailbox(i, Some(code), None, None, None);
+                        this.write_mailbox(i, Some(code), None, None);
                         let eacen = read_reg!(ral::can, this.reg, CTRL2, EACEN == EACEN_1);
                         let rximr = 0_32 | {
                             if eacen {
@@ -690,8 +689,7 @@ where
                                 FlexCanMailboxCSCode::TxInactive as u8,
                             )),
                             Some(0),
-                            Some(0),
-                            Some(0),
+                            Some([0x00; 8]),
                         );
                         this.enable_mailbox_interrupt(i, true);
                     }
@@ -980,7 +978,6 @@ where
                     Some(to_flexcan_mb_cs_code(FlexCanMailboxCSCode::RxEmpty as u8)),
                     None,
                     None,
-                    None,
                 );
                 read_reg!(ral::can, self.reg, TIMER);
                 self.write_iflag_bit(mailbox_number);
@@ -1001,29 +998,6 @@ where
         mailbox_number: u8,
         code: Option<u32>,
         id: Option<u32>,
-        word0: Option<u32>,
-        word1: Option<u32>,
-    ) {
-        let mailbox_addr = self.mailbox_number_to_address(mailbox_number);
-        if let Some(code) = code {
-            unsafe { core::ptr::write_volatile((mailbox_addr + 0_u32) as *mut u32, code) };
-        }
-        if let Some(id) = id {
-            unsafe { core::ptr::write_volatile((mailbox_addr + 0x4_u32) as *mut u32, id) };
-        }
-        if let Some(word0) = word0 {
-            unsafe { core::ptr::write_volatile((mailbox_addr + 0x8_u32) as *mut u32, word0) };
-        }
-        if let Some(word1) = word1 {
-            unsafe { core::ptr::write_volatile((mailbox_addr + 0xC_u32) as *mut u32, word1) };
-        }
-    }
-
-    fn write_mailbox_2(
-        &self,
-        mailbox_number: u8,
-        code: Option<u32>,
-        id: Option<u32>,
         data: Option<[u8; 8]>,
     ) {
         let mailbox_addr = self.mailbox_number_to_address(mailbox_number);
@@ -1039,29 +1013,6 @@ where
             unsafe { core::ptr::write_volatile((mailbox_addr + 0x8_u32) as *mut u32, word0) };
             unsafe { core::ptr::write_volatile((mailbox_addr + 0xC_u32) as *mut u32, word1) };
         }
-    }
-
-    fn write_tx_mailbox(&mut self, mailbox_number: u8, id: u32, word0: u32, word1: u32) {
-        self.write_iflag_bit(mailbox_number);
-        let mut code: u32 = 0x00;
-        self.write_mailbox(
-            mailbox_number,
-            Some(to_flexcan_mb_cs_code(
-                FlexCanMailboxCSCode::TxInactive as u8,
-            )),
-            None,
-            None,
-            None,
-        );
-        self.write_mailbox(
-            mailbox_number,
-            None,
-            Some((id & 0x000007FF) << 18),
-            Some(word0),
-            Some(word1),
-        );
-        code |= 8 << 16 | to_flexcan_mb_cs_code(FlexCanMailboxCSCode::TxOnce as u8);
-        self.write_mailbox(mailbox_number, Some(code), None, None, None);
     }
 
     /// Write data to an available TX Mailbox.
@@ -1092,7 +1043,7 @@ where
     /// 
     /// Once the MB is activated, it will participate into the arbitration process and eventually be
     /// transmitted according to its priority.
-    fn write_tx_mailbox_2(&mut self, mailbox_number: u8, id: u32, data: [u8; 8]) {
+    fn write_tx_mailbox(&mut self, mailbox_number: u8, id: u32, data: [u8; 8]) {
         // Check if the respective interruption bit is set and clear it.
         self.write_iflag_bit(mailbox_number);
         let mut code: u32 = 0x00;
@@ -1103,16 +1054,15 @@ where
             )),
             None,
             None,
-            None,
         );
-        self.write_mailbox_2(
+        self.write_mailbox(
             mailbox_number,
             None,
             Some((id & 0x000007FF) << 18),
             Some(data),
         );
         code |= 8 << 16 | to_flexcan_mb_cs_code(FlexCanMailboxCSCode::TxOnce as u8);
-        self.write_mailbox(mailbox_number, Some(code), None, None, None);
+        self.write_mailbox(mailbox_number, Some(code), None, None);
     }
 
     fn write_mailbox_rximr(&self, mailbox_number: u8, rximr: Option<u32>) {
@@ -1229,7 +1179,7 @@ where
             if let Some(code) = self.read_mailbox_code(i) {
                 if code == FlexCanMailboxCSCode::TxInactive as u8 {
                     let id = frame.id.to_id().as_raw();
-                    self.write_tx_mailbox_2(i, id, frame.data.bytes);
+                    self.write_tx_mailbox(i, id, frame.data.bytes);
                     return Ok(());
                 }
             }
@@ -1237,17 +1187,6 @@ where
         Ok(())
     }
 
-    pub fn write(&mut self, id: u32, word0: u32, word1: u32) -> nb::Result<(), Infallible> {
-        for i in self.mailbox_offset()..self.get_max_mailbox() {
-            if let Some(code) = self.read_mailbox_code(i) {
-                if code == FlexCanMailboxCSCode::TxInactive as u8 {
-                    self.write_tx_mailbox(i, id, word0, word1);
-                    return Ok(());
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 /// Interface to the CAN transmitter part.

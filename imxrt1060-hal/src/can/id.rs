@@ -12,36 +12,57 @@ use core::cmp::{Ord, Ordering};
 /// priority than remote frames.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
-pub struct IdReg(u32);
+pub struct IdReg {
+    code: u32,
+    id: u32,
+}
 
 impl IdReg {
+    const SRR_SHIFT: u32 = 22;
+    const SRR_MASK: u32 = 0b1_u32 << Self::SRR_SHIFT;
+
+    const IDE_SHIFT: u32 = 21;
+    const IDE_MASK: u32 = 0b1_u32 << Self::IDE_SHIFT;
+
+    const RTR_SHIFT: u32 = 20;
+    const RTR_MASK: u32 = 0b1_u32 << Self::RTR_SHIFT;
+
+    const DLC_SHIFT: u32 = 16;
+    const DLC_MASK: u32 = 0b111_u32 << Self::DLC_SHIFT;
+
+    const TIMESTAMP_SHIFT: u32 = 0;
+    const TIMESTAMP_MASK: u32 = 0xFFFF_u32 << Self::TIMESTAMP_SHIFT;
+
     const STANDARD_SHIFT: u32 = 18;
-
-    const EXTENDED_SHIFT: u32 = 1;
-
-    const IDE_MASK: u32 = 0x0000_0004;
-
-    const RTR_MASK: u32 = 0x0000_0002;
+    const EXTENDED_SHIFT: u32 = 0;
 
     /// Creates a new standard identifier (11bit, Range: 0..0x7FF)
     ///
     /// Panics for IDs outside the allowed range.
-    pub fn new(reg: u32) -> Self {
-        Self(reg)
+    pub fn new(code: u32, id: u32) -> Self {
+        Self { code, id }
+    }
+
+    pub fn to_id_reg(&self) -> u32 {
+        self.id
     }
 
     /// Creates a new standard identifier (11bit, Range: 0..0x7FF)
     ///
     /// Panics for IDs outside the allowed range.
     pub fn new_standard(id: StandardId) -> Self {
-        Self(u32::from(id.as_raw()) << Self::STANDARD_SHIFT)
+        let code = 0x00;
+        let id = u32::from(id.as_raw()) << Self::STANDARD_SHIFT;
+        Self::new(code, id)
     }
 
     /// Creates a new extendended identifier (29bit , Range: 0..0x1FFFFFFF).
     ///
     /// Panics for IDs outside the allowed range.
     pub fn new_extended(id: ExtendedId) -> IdReg {
-        Self(id.as_raw() << Self::EXTENDED_SHIFT | Self::IDE_MASK)
+        let code = Self::IDE_MASK;
+        let id = u32::from(id.as_raw()) << Self::STANDARD_SHIFT;
+        Self::new(code, id)
     }
 
     /// Sets the remote transmission (RTR) flag. This marks the identifier as
@@ -49,26 +70,26 @@ impl IdReg {
     #[must_use = "returns a new IdReg without modifying `self`"]
     pub fn with_rtr(self, rtr: bool) -> IdReg {
         if rtr {
-            Self(self.0 | Self::RTR_MASK)
+            Self::new(self.code | Self::RTR_MASK, self.id)
         } else {
-            Self(self.0 & !Self::RTR_MASK)
+            Self::new(self.code & !Self::RTR_MASK, self.id)
         }
     }
 
     /// Returns the identifier.
     pub fn to_id(self) -> Id {
         if self.is_extended() {
-            Id::Extended(unsafe { ExtendedId::new_unchecked(self.0 >> Self::EXTENDED_SHIFT) })
+            Id::Extended(unsafe { ExtendedId::new_unchecked(self.id >> Self::EXTENDED_SHIFT) })
         } else {
             Id::Standard(unsafe {
-                StandardId::new_unchecked((self.0 >> Self::STANDARD_SHIFT) as u16)
+                StandardId::new_unchecked((self.id >> Self::STANDARD_SHIFT) as u16)
             })
         }
     }
 
     /// Returns `true` if the identifier is an extended identifier.
     pub fn is_extended(self) -> bool {
-        self.0 & Self::IDE_MASK != 0
+        self.code & Self::IDE_MASK != 0
     }
 
     /// Returns `true` if the identifier is a standard identifier.
@@ -78,7 +99,7 @@ impl IdReg {
 
     /// Returns `true` if the identifer is part of a remote frame (RTR bit set).
     pub fn rtr(self) -> bool {
-        self.0 & Self::RTR_MASK != 0
+        self.code & Self::RTR_MASK != 0
     }
 }
 
@@ -245,4 +266,3 @@ impl Id {
         }
     }
 }
-
