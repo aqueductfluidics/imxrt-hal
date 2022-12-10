@@ -4,8 +4,8 @@ mod frame;
 mod id;
 mod interrupt;
 
-pub use frame::{Data, Frame, FramePriority};
-pub use id::{ExtendedId, Id, IdReg, StandardId};
+pub use frame::{CodeReg, Data, FlexCanMailboxCSCode, Frame, IdReg};
+pub use id::{ExtendedId, Id, StandardId};
 use ral::{modify_reg, read_reg, write_reg};
 
 use crate::ccm;
@@ -122,86 +122,93 @@ pub struct CAN<M> {
 const CAN1_ADDR: u32 = 0x401d0000;
 const CAN2_ADDR: u32 = 0x401d4000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug)]
 pub struct MailboxData {
-    pub code: u32,
-    pub id: u32,
-    pub data: [u8; 8],
+    pub frame: Frame,
     pub mailbox_number: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct MailboxDataInfo {
-    pub remote: bool,
-    pub extended: bool,
-    pub id: Id,
-    pub length: u8,
-    pub timestamp: u32,
-}
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+// pub struct MailboxData {
+//     pub code: u32,
+//     pub id: u32,
+//     pub data: [u8; 8],
+//     pub mailbox_number: u8,
+// }
 
-impl From<&MailboxData> for MailboxDataInfo {
-    fn from(d: &MailboxData) -> Self {
-        let extended = d.code & (1_u32 << 21) == 1;
-        let id = (d.id & 0x1FFFFFFF_u32) >> (if extended { 0 } else { 18 });
-        let id: Id = if extended {
-            ExtendedId::new(id).unwrap().into()
-        } else {
-            StandardId::new(id as u16).unwrap().into()
-        };
-        Self {
-            remote: d.code & (1_u32 << 20) == 1,
-            extended,
-            id,
-            length: ((d.code & 0xF0000_u32) >> 16) as u8,
-            timestamp: d.code & 0xFFFF_u32,
-        }
-    }
-}
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+// pub struct MailboxDataInfo {
+//     pub remote: bool,
+//     pub extended: bool,
+//     pub id: Id,
+//     pub length: u8,
+//     pub timestamp: u32,
+// }
 
-impl From<&Frame> for MailboxData {
-    fn from(f: &Frame) -> Self {
-        Self {
-            code: 0x00,
-            id: f.id.to_id().as_raw(),
-            data: f.data.bytes.into(),
-            mailbox_number: 0,
-        }
-    }
-}
+// impl From<&MailboxData> for MailboxDataInfo {
+//     fn from(d: &MailboxData) -> Self {
+//         let extended = d.code & (1_u32 << 21) == 1;
+//         let id = (d.id & 0x1FFFFFFF_u32) >> (if extended { 0 } else { 18 });
+//         let id: Id = if extended {
+//             ExtendedId::new(id).unwrap().into()
+//         } else {
+//             StandardId::new(id as u16).unwrap().into()
+//         };
+//         Self {
+//             remote: d.code & (1_u32 << 20) == 1,
+//             extended,
+//             id,
+//             length: ((d.code & 0xF0000_u32) >> 16) as u8,
+//             timestamp: d.code & 0xFFFF_u32,
+//         }
+//     }
+// }
 
-impl From<&MailboxData> for Frame {
-    fn from(d: &MailboxData) -> Self {
-        Self {
-            id: IdReg::new(d.code, d.id),
-            data: d.data.into(),
-        }
-    }
-}
+// impl From<&Frame> for MailboxData {
+//     fn from(f: &Frame) -> Self {
+//         Self {
+//             code: f.code.to_code_reg(),
+//             id: f.id.to_id_reg(),
+//             data: f.data.bytes.into(),
+//             mailbox_number: 0,
+//         }
+//     }
+// }
 
-const FLEXCAN_MB_CS_CODE_MASK: u32 = 0x0F000000;
+// impl From<&MailboxData> for Frame {
+//     fn from(d: &MailboxData) -> Self {
+//         Self {
+//             code:
+//             id: CodeIdReg::new(d.code, d.id),
+//             data: d.data.into(),
+//         }
+//     }
+// }
 
-#[repr(u8)]
-pub enum FlexCanMailboxCSCode {
-    RxInactive = 0b0000,
-    RxEmpty = 0b0100,
-    RxFull = 0b0010,
-    RxOverrun = 0b0110,
-    RxBusy = 0b0001,
+// const FLEXCAN_MB_CS_CODE_MASK: u32 = 0x0F000000;
 
-    TxInactive = 0b1000,
-    TxAbort = 0b1001,
-    TxOnce = 0b1100,
-}
+// #[repr(u8)]
+// pub enum FlexCanMailboxCSCode {
+//     RxInactive = 0b0000,
+//     RxEmpty = 0b0100,
+//     RxFull = 0b0010,
+//     RxOverrun = 0b0110,
+//     RxBusy = 0b0001,
 
-#[inline]
-fn to_flexcan_mb_cs_code(status: u8) -> u32 {
-    ((status as u32) & 0x0000000F) << 24
-}
+//     TxInactive = 0b1000,
+//     TxAbort = 0b1001,
+//     TxOnce = 0b1100,
+// }
 
-#[inline]
-fn from_flexcan_mb_cs_code(code: u32) -> u8 {
-    ((code & FLEXCAN_MB_CS_CODE_MASK) >> 24) as u8
-}
+// #[inline]
+// fn to_flexcan_mb_cs_code(status: u8) -> u32 {
+//     ((status as u32) & 0x0000000F) << 24
+// }
+
+// #[inline]
+// fn from_flexcan_mb_cs_code(code: u32) -> u8 {
+//     ((code & FLEXCAN_MB_CS_CODE_MASK) >> 24) as u8
+// }
 
 #[inline]
 fn constrain<T: PartialOrd>(value: T, min: T, max: T) -> T {
@@ -652,9 +659,7 @@ where
                 for i in this.mailbox_offset()..max_mailbox {
                     this.write_mailbox(
                         i,
-                        Some(to_flexcan_mb_cs_code(
-                            FlexCanMailboxCSCode::TxInactive as u8,
-                        )),
+                        Some(FlexCanMailboxCSCode::TxInactive.to_code_reg()),
                         None,
                         None,
                     );
@@ -663,15 +668,13 @@ where
             } else {
                 for i in 0..max_mailbox {
                     if i < max_mailbox / 2 {
-                        let code = to_flexcan_mb_cs_code(FlexCanMailboxCSCode::RxEmpty as u8)
-                            | 0x00400000
-                            | {
-                                if i < max_mailbox / 4 {
-                                    0
-                                } else {
-                                    0x00200000
-                                }
-                            };
+                        let code = FlexCanMailboxCSCode::RxEmpty.to_code_reg() | 0x00400000 | {
+                            if i < max_mailbox / 4 {
+                                0
+                            } else {
+                                0x00200000
+                            }
+                        };
                         this.write_mailbox(i, Some(code), None, None);
                         let eacen = read_reg!(ral::can, this.reg, CTRL2, EACEN == EACEN_1);
                         let rximr = 0_32 | {
@@ -683,11 +686,10 @@ where
                         };
                         this.write_mailbox_rximr(i, Some(rximr));
                     } else {
+                        // set inactive
                         this.write_mailbox(
                             i,
-                            Some(to_flexcan_mb_cs_code(
-                                FlexCanMailboxCSCode::TxInactive as u8,
-                            )),
+                            Some(FlexCanMailboxCSCode::TxInactive.to_code_reg()),
                             Some(0),
                             Some([0x00; 8]),
                         );
@@ -975,19 +977,16 @@ where
 
                 self.write_mailbox(
                     mailbox_number,
-                    Some(to_flexcan_mb_cs_code(FlexCanMailboxCSCode::RxEmpty as u8)),
+                    Some(FlexCanMailboxCSCode::RxEmpty.to_code_reg()),
                     None,
                     None,
                 );
                 read_reg!(ral::can, self.reg, TIMER);
                 self.write_iflag_bit(mailbox_number);
 
-                Some(MailboxData {
-                    code,
-                    id,
-                    data,
-                    mailbox_number,
-                })
+                let frame = Frame::new_from_raw(code, id, data);
+
+                Some(MailboxData { frame, mailbox_number })
             }
             _ => None,
         }
@@ -1021,9 +1020,9 @@ where
     ///
     /// In order to transmit a CAN frame, the CPU must prepare a Message Buffer for
     /// transmission by executing the procedure found here.
-    /// 
+    ///
     /// 1. Check if the respective interruption bit is set and clear it.
-    /// 
+    ///
     /// 2. If the MB is active (transmission pending), write the ABORT code (0b1001) to the
     /// CODE field of the Control and Status word to request an abortion of the
     /// transmission. Wait for the corresponding IFLAG to be asserted by polling the IFLAG
@@ -1033,36 +1032,32 @@ where
     /// bit negated), just write the INACTIVE code (0b1000) to the CODE field to inactivate
     /// the MB but then the pending frame may be transmitted without notification (see
     /// Message Buffer Inactivation).
-    /// 
+    ///
     /// 3. Write the ID word.
-    /// 
+    ///
     /// 4. Write the data bytes.
-    /// 
+    ///
     /// 5. Write the DLC, Control and Code fields of the Control and Status word to activate
     /// the MB.
-    /// 
+    ///
     /// Once the MB is activated, it will participate into the arbitration process and eventually be
     /// transmitted according to its priority.
-    fn write_tx_mailbox(&mut self, mailbox_number: u8, id: u32, data: [u8; 8]) {
+    fn write_tx_mailbox(&mut self, mailbox_number: u8, frame: &Frame) {
         // Check if the respective interruption bit is set and clear it.
         self.write_iflag_bit(mailbox_number);
-        let mut code: u32 = 0x00;
         self.write_mailbox(
             mailbox_number,
-            Some(to_flexcan_mb_cs_code(
-                FlexCanMailboxCSCode::TxInactive as u8,
-            )),
+            Some(FlexCanMailboxCSCode::TxInactive.to_code_reg()),
             None,
             None,
         );
         self.write_mailbox(
             mailbox_number,
             None,
-            Some((id & 0x000007FF) << 18),
-            Some(data),
+            Some(frame.id.to_id_reg()),
+            Some(frame.data.bytes),
         );
-        code |= 8 << 16 | to_flexcan_mb_cs_code(FlexCanMailboxCSCode::TxOnce as u8);
-        self.write_mailbox(mailbox_number, Some(code), None, None);
+        self.write_mailbox(mailbox_number, Some(frame.to_tx_once_code()), None, None);
     }
 
     fn write_mailbox_rximr(&self, mailbox_number: u8, rximr: Option<u32>) {
@@ -1091,7 +1086,7 @@ where
         } else {
             match self.read_mailbox(mailbox_number) {
                 Some(d) => {
-                    if (d.code & 0x0F000000) >> 3 != 0 {
+                    if (d.frame.code.to_code_reg() & 0x0F000000) >> 3 != 0 {
                         /* transmit interrupt keeper */
                         self.write_imask_bit(mailbox_number, true);
                         return;
@@ -1141,9 +1136,8 @@ where
             match self.read_mailbox(self._mailbox_reader_index) {
                 Some(mailbox_data) => {
                     log::info!(
-                        "RX Data: {:?}, {:?}",
+                        "RX Data: {:?}",
                         &mailbox_data,
-                        MailboxDataInfo::from(&mailbox_data)
                     );
                 }
                 _ => {}
@@ -1178,15 +1172,13 @@ where
         for i in self.mailbox_offset()..self.get_max_mailbox() {
             if let Some(code) = self.read_mailbox_code(i) {
                 if code == FlexCanMailboxCSCode::TxInactive as u8 {
-                    let id = frame.id.to_id().as_raw();
-                    self.write_tx_mailbox(i, id, frame.data.bytes);
+                    self.write_tx_mailbox(i, frame);
                     return Ok(());
                 }
             }
         }
         Ok(())
     }
-
 }
 
 /// Interface to the CAN transmitter part.
