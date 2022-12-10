@@ -318,12 +318,12 @@ impl IdReg {
 
     #[inline(always)]
     pub fn to_standard(&self) -> Id {
-        Id::Extended(unsafe { ExtendedId::new_unchecked(self.0 >> Self::EXTENDED_SHIFT) })
+        Id::Extended(unsafe { ExtendedId::new_unchecked(self.0 >> Self::STANDARD_SHIFT) })
     }
 
     #[inline(always)]
     pub fn to_extended(&self) -> Id {
-        Id::Standard(unsafe { StandardId::new_unchecked((self.0 >> Self::STANDARD_SHIFT) as u16) })
+        Id::Standard(unsafe { StandardId::new_unchecked((self.0 >> Self::EXTENDED_SHIFT) as u16) })
     }
 }
 
