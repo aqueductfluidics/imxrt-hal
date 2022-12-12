@@ -32,13 +32,13 @@ jobs:
         target: thumbv7em-none-eabihf
         override: true
         profile: minimal
-    - name: Check imxrt1060-hal with features '${{ matrix.features }}'
+    - name: Check imxrt-hal with features '${{ matrix.features }}'
       uses: actions-rs/cargo@v1
       with:
         command: check
         args: >
           --features=${{ matrix.features }}
-          --manifest-path=imxrt1060-hal/Cargo.toml
+          --manifest-path=imxrt-hal/Cargo.toml
           --target=thumbv7em-none-eabihf
           --verbose
 
