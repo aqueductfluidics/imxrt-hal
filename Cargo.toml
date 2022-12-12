@@ -1,4 +1,4 @@
 [workspace]
 members = [
-    "imxrt1060-hal",
+    "imxrt-hal",
 ]
