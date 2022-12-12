@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests;
 
-use core::cmp::{Ord, Ordering};
 use core::convert::TryFrom;
 use core::ops::{Deref, DerefMut};
 
@@ -126,6 +125,7 @@ impl PartialEq for Frame {
     }
 }
 
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum FlexCanMailboxCSCode {
     RxInactive = 0b0000,
@@ -173,6 +173,16 @@ impl FlexCanMailboxCSCode {
     pub fn to_code_reg(&self) -> u32 {
         (*self as u32) << CodeReg::CODE_SHIFT
     }
+
+    #[inline(always)]
+    pub fn from_code_reg(reg: u32) -> Result<Self, ()> {
+        Self::try_from(((reg & CodeReg::CODE_MASK) >> CodeReg::CODE_SHIFT) as u8)
+    }
+
+    #[inline(always)]
+    pub fn is_tx_mailbox(&self) -> bool {
+        (*self as u8) >> 3 != 0
+    }
 }
 
 /// Code Register of a FlexCAN mailbox.
@@ -187,7 +197,9 @@ impl CodeReg {
     pub(crate) const CODE_SHIFT: u32 = 24;
     pub(crate) const CODE_MASK: u32 = 0b1111_u32 << Self::CODE_SHIFT;
 
+    #[allow(dead_code)]
     const SRR_SHIFT: u32 = 22;
+    #[allow(dead_code)]
     const SRR_MASK: u32 = 0b1_u32 << Self::SRR_SHIFT;
 
     const IDE_SHIFT: u32 = 21;
@@ -235,17 +247,27 @@ impl CodeReg {
     ///
     /// This function will panic if a matching [`FlexCanMailboxCSCode`] is not found.
     #[inline(always)]
-    pub fn get_code(&self) -> FlexCanMailboxCSCode {
+    pub fn code(&self) -> FlexCanMailboxCSCode {
         FlexCanMailboxCSCode::try_from(((self.0 & Self::CODE_MASK) >> Self::CODE_SHIFT) as u8)
             .unwrap()
     }
 
+    pub fn timestamp(&self) -> u16 {
+        ((self.0 & Self::TIMESTAMP_MASK) >> Self::TIMESTAMP_SHIFT) as u16
+    }
+
+    pub fn dlc(&self) -> u8 {
+        ((self.0 & Self::DLC_MASK) >> Self::DLC_SHIFT) as u8
+    }
+
     /// Returns `true` if the code reg is an extended identifier.
+    #[inline(always)]
     fn is_extended(self) -> bool {
         self.0 & Self::IDE_MASK != 0
     }
 
     /// Returns `true` if the code reg is a standard identifier.
+    #[inline(always)]
     fn is_standard(self) -> bool {
         !self.is_extended()
     }
@@ -262,6 +284,7 @@ impl CodeReg {
     }
 
     /// Returns `true` if the identifer is part of a remote frame (RTR bit set).
+    #[inline(always)]
     pub fn rtr(self) -> bool {
         self.0 & Self::RTR_MASK != 0
     }

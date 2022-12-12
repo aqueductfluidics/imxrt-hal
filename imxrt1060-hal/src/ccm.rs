@@ -938,7 +938,7 @@ pub mod spi {
     }
 }
 
-/// Timing configurations for SPI peripherals
+/// Timing configurations for FlexCAN peripherals
 pub mod can {
     use super::{ral::ccm, Divider, Frequency};
 

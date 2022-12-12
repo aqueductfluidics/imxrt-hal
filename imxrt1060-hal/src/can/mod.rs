@@ -2,7 +2,6 @@ mod embedded_hal;
 pub mod filter;
 mod frame;
 mod id;
-mod interrupt;
 
 pub use frame::{CodeReg, Data, FlexCanMailboxCSCode, Frame, IdReg};
 pub use id::{ExtendedId, Id, StandardId};
@@ -22,10 +21,10 @@ pub struct OverrunError {
     _priv: (),
 }
 
-/// Unclocked CAN modules
+/// Unclocked Can modules
 ///
-/// The `Unclocked` struct represents the unconfigured CAN peripherals.
-/// Once clocked, you'll have the ability to build CAN peripherals from the
+/// The `Unclocked` struct represents the unconfigured Can peripherals.
+/// Once clocked, you'll have the ability to build Can peripherals from the
 /// compatible processor pins.
 pub struct Unclocked {
     pub(crate) can1: ral::can::Instance,
@@ -33,7 +32,7 @@ pub struct Unclocked {
 }
 
 impl Unclocked {
-    /// Enable clocks to all CAN modules, returning a builder for the two CAN modules.
+    /// Enable clocks to all Can modules, returning a builder for the two Can modules.
     pub fn clock(
         self,
         handle: &mut ccm::Handle,
@@ -84,7 +83,7 @@ impl Unclocked {
     }
 }
 
-/// A CAN builder that can build a CAN peripheral
+/// A Can builder that can build a Can peripheral
 pub struct Builder<M> {
     _module: PhantomData<M>,
     reg: ral::can::Instance,
@@ -103,14 +102,14 @@ where
         }
     }
 
-    /// Builds a CAN peripheral. The return
-    /// is a configured FLEXCAN peripheral running at 24MHz.
+    /// Builds a Can peripheral. The return
+    /// is a configured FlexCan peripheral running at 24MHz.
     pub fn build(self) -> CAN<M> {
         CAN::new(self.source_clock, self.reg)
     }
 }
 
-/// A CAN master
+/// A Can master
 ///
 pub struct CAN<M> {
     reg: ral::can::Instance,
@@ -127,88 +126,6 @@ pub struct MailboxData {
     pub frame: Frame,
     pub mailbox_number: u8,
 }
-
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-// pub struct MailboxData {
-//     pub code: u32,
-//     pub id: u32,
-//     pub data: [u8; 8],
-//     pub mailbox_number: u8,
-// }
-
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-// pub struct MailboxDataInfo {
-//     pub remote: bool,
-//     pub extended: bool,
-//     pub id: Id,
-//     pub length: u8,
-//     pub timestamp: u32,
-// }
-
-// impl From<&MailboxData> for MailboxDataInfo {
-//     fn from(d: &MailboxData) -> Self {
-//         let extended = d.code & (1_u32 << 21) == 1;
-//         let id = (d.id & 0x1FFFFFFF_u32) >> (if extended { 0 } else { 18 });
-//         let id: Id = if extended {
-//             ExtendedId::new(id).unwrap().into()
-//         } else {
-//             StandardId::new(id as u16).unwrap().into()
-//         };
-//         Self {
-//             remote: d.code & (1_u32 << 20) == 1,
-//             extended,
-//             id,
-//             length: ((d.code & 0xF0000_u32) >> 16) as u8,
-//             timestamp: d.code & 0xFFFF_u32,
-//         }
-//     }
-// }
-
-// impl From<&Frame> for MailboxData {
-//     fn from(f: &Frame) -> Self {
-//         Self {
-//             code: f.code.to_code_reg(),
-//             id: f.id.to_id_reg(),
-//             data: f.data.bytes.into(),
-//             mailbox_number: 0,
-//         }
-//     }
-// }
-
-// impl From<&MailboxData> for Frame {
-//     fn from(d: &MailboxData) -> Self {
-//         Self {
-//             code:
-//             id: CodeIdReg::new(d.code, d.id),
-//             data: d.data.into(),
-//         }
-//     }
-// }
-
-// const FLEXCAN_MB_CS_CODE_MASK: u32 = 0x0F000000;
-
-// #[repr(u8)]
-// pub enum FlexCanMailboxCSCode {
-//     RxInactive = 0b0000,
-//     RxEmpty = 0b0100,
-//     RxFull = 0b0010,
-//     RxOverrun = 0b0110,
-//     RxBusy = 0b0001,
-
-//     TxInactive = 0b1000,
-//     TxAbort = 0b1001,
-//     TxOnce = 0b1100,
-// }
-
-// #[inline]
-// fn to_flexcan_mb_cs_code(status: u8) -> u32 {
-//     ((status as u32) & 0x0000000F) << 24
-// }
-
-// #[inline]
-// fn from_flexcan_mb_cs_code(code: u32) -> u8 {
-//     ((code & FLEXCAN_MB_CS_CODE_MASK) >> 24) as u8
-// }
 
 #[inline]
 fn constrain<T: PartialOrd>(value: T, min: T, max: T) -> T {
@@ -364,11 +281,11 @@ where
         while ral::read_reg!(ral::can, self.reg, MCR, FRZACK != FRZACK_0) {}
     }
 
-    fn set_mrp(&mut self, mrp: bool) {
+    pub fn set_mrp(&mut self, mrp: bool) {
         ral::modify_reg!(ral::can, self.reg, CTRL2, MRP: mrp as u32)
     }
 
-    fn set_rrs(&mut self, rrs: bool) {
+    pub fn set_rrs(&mut self, rrs: bool) {
         ral::modify_reg!(ral::can, self.reg, CTRL2, RRS: rrs as u32)
     }
 
@@ -381,7 +298,7 @@ where
                 unsafe { modify_reg!(ral::ccm, CCM, CCGR0, |reg| reg | 0x3C0000) };
             }
             u => {
-                log::error!("Invalid CAN instance (set_ccm_ccg): {:?}", u);
+                log::error!("Invalid Can instance (set_ccm_ccg): {:?}", u);
             }
         }
     }
@@ -427,7 +344,7 @@ where
                 };
             }
             u => {
-                log::error!("Invalid CAN instance (set_tx): {:?}", u);
+                log::error!("Invalid Can instance (set_tx): {:?}", u);
             }
         }
     }
@@ -489,12 +406,12 @@ where
                 };
             }
             u => {
-                log::error!("Invalid CAN instance (set_rx): {:?}", u);
+                log::error!("Invalid Can instance (set_rx): {:?}", u);
             }
         }
     }
 
-    fn get_clock(&self) -> u32 {
+    pub fn get_clock(&self) -> u32 {
         self.source_clock.0
     }
 
@@ -906,6 +823,7 @@ where
         }
     }
 
+    #[allow(dead_code)]
     fn read_fifo(&self) -> Option<()> {
         // if FIFO enabled and interrupt not enabled
         if !self.fifo_enabled() {
@@ -922,43 +840,47 @@ where
         Some(())
     }
 
+    #[inline(always)]
     fn mailbox_number_to_address(&self, mailbox_number: u8) -> u32 {
         self.base_address() + 0x80_u32 + (mailbox_number as u32 * 0x10_u32)
     }
 
+    #[inline(always)]
     fn mailbox_number_to_rximr_address(&self, mailbox_number: u8) -> u32 {
         self.base_address() + 0x880_u32 + (mailbox_number as u32 * 0x4_u32)
     }
 
+    #[inline(always)]
     fn mailbox_number_to_idflt_tab_address(&self, mailbox_number: u8) -> u32 {
         self.base_address() + 0xE0_u32 + (mailbox_number as u32 * 0x4_u32)
     }
 
-    fn read_mailbox_code(&mut self, mailbox_number: u8) -> Option<u8> {
+    #[inline(always)]
+    fn read_mailbox_code(&mut self, mailbox_number: u8) -> u32 {
         let mailbox_addr = self.mailbox_number_to_address(mailbox_number);
-        let code = unsafe { core::ptr::read_volatile(mailbox_addr as *const u32) };
-        Some(((code & 0x0F000000_u32) >> 24) as u8)
+        unsafe { core::ptr::read_volatile(mailbox_addr as *const u32) }
     }
 
+    #[inline(always)]
     fn read_mailbox(&mut self, mailbox_number: u8) -> Option<MailboxData> {
-        let mailbox_addr = self.mailbox_number_to_address(mailbox_number);
-
         if (self.read_imask() & (1_u64 << mailbox_number)) != 0 {
             return None;
         }
 
-        let code = unsafe { core::ptr::read_volatile(mailbox_addr as *const u32) };
-        let c = ((code & 0x0F000000_u32) >> 24) as u8;
+        let code = self.read_mailbox_code(mailbox_number);
+        let c = match FlexCanMailboxCSCode::from_code_reg(code) {
+            Ok(c) => Some(c),
+            Err(_e) => None,
+        };
+
+        let mailbox_addr = self.mailbox_number_to_address(mailbox_number);
 
         match c {
             // return None from a transmit mailbox
-            c if c >> 3 != 0 => {
-                // log::info!("transmit code!");
-                None
-            }
+            Some(c) if c.is_tx_mailbox() => None,
             // full or overrun
-            c if (c == FlexCanMailboxCSCode::RxFull as u8)
-                | (c == FlexCanMailboxCSCode::RxOverrun as u8) =>
+            Some(c)
+                if (c == FlexCanMailboxCSCode::RxFull) | (c == FlexCanMailboxCSCode::RxOverrun) =>
             {
                 let id =
                     unsafe { core::ptr::read_volatile((mailbox_addr + 0x4_u32) as *const u32) };
@@ -986,12 +908,17 @@ where
 
                 let frame = Frame::new_from_raw(code, id, data);
 
-                Some(MailboxData { frame, mailbox_number })
+                Some(MailboxData {
+                    frame,
+                    mailbox_number,
+                })
             }
             _ => None,
         }
     }
 
+    /// Write the registers of a mailbox.
+    #[inline(always)]
     fn write_mailbox(
         &self,
         mailbox_number: u8,
@@ -1018,7 +945,7 @@ where
     ///
     /// This will accept both standard and extended data and remote frames with any ID.
     ///
-    /// In order to transmit a CAN frame, the CPU must prepare a Message Buffer for
+    /// In order to transmit a Can frame, the CPU must prepare a Message Buffer for
     /// transmission by executing the procedure found here.
     ///
     /// 1. Check if the respective interruption bit is set and clear it.
@@ -1042,6 +969,7 @@ where
     ///
     /// Once the MB is activated, it will participate into the arbitration process and eventually be
     /// transmitted according to its priority.
+    #[inline(always)]
     fn write_tx_mailbox(&mut self, mailbox_number: u8, frame: &Frame) {
         // Check if the respective interruption bit is set and clear it.
         self.write_iflag_bit(mailbox_number);
@@ -1135,10 +1063,7 @@ where
             }
             match self.read_mailbox(self._mailbox_reader_index) {
                 Some(mailbox_data) => {
-                    log::info!(
-                        "RX Data: {:?}",
-                        &mailbox_data,
-                    );
+                    log::info!("RX Data: {:?}", &mailbox_data,);
                 }
                 _ => {}
             }
@@ -1147,6 +1072,7 @@ where
         None
     }
 
+    #[inline(always)]
     pub fn handle_interrupt(&mut self) -> Option<MailboxData> {
         let imask = self.read_imask();
         let iflag = self.read_iflag();
@@ -1168,20 +1094,21 @@ where
         None
     }
 
+    #[inline(always)]
     pub fn transmit(&mut self, frame: &Frame) -> nb::Result<(), Infallible> {
         for i in self.mailbox_offset()..self.get_max_mailbox() {
-            if let Some(code) = self.read_mailbox_code(i) {
-                if code == FlexCanMailboxCSCode::TxInactive as u8 {
-                    self.write_tx_mailbox(i, frame);
-                    return Ok(());
-                }
+            if let Ok(FlexCanMailboxCSCode::TxInactive) =
+                FlexCanMailboxCSCode::from_code_reg(self.read_mailbox_code(i))
+            {
+                self.write_tx_mailbox(i, frame);
+                return Ok(());
             }
         }
         Ok(())
     }
 }
 
-/// Interface to the CAN transmitter part.
+/// Interface to the Can transmitter part.
 pub struct Tx<I> {
     _can: PhantomData<I>,
 }
