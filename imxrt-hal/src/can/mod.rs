@@ -51,7 +51,7 @@ impl Unclocked {
         );
 
         let clk_sel = match clock_select {
-            ccm::can::ClockSelect::Pll2 => ral::ccm::CSCMR2::CAN_CLK_SEL::RW::CAN_CLK_SEL_1,
+            ccm::can::ClockSelect::OSC => ral::ccm::CSCMR2::CAN_CLK_SEL::RW::CAN_CLK_SEL_1,
         };
 
         // Select clock, and commit prescalar

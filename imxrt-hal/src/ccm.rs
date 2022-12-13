@@ -940,12 +940,12 @@ pub mod spi {
 
 /// Timing configurations for FlexCAN peripherals
 pub mod can {
-    use super::{ral::ccm, Divider, Frequency};
+    use super::{ral::ccm, Divider, Frequency, OSCILLATOR_FREQUENCY};
 
     #[derive(Clone, Copy)]
     #[non_exhaustive] // Not all variants added
     pub enum ClockSelect {
-        Pll2,
+        OSC,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1085,7 +1085,7 @@ pub mod can {
     impl From<ClockSelect> for Frequency {
         fn from(clock_select: ClockSelect) -> Self {
             match clock_select {
-                ClockSelect::Pll2 => Frequency(528_000_000),
+                ClockSelect::OSC => OSCILLATOR_FREQUENCY,
             }
         }
     }
