@@ -117,9 +117,6 @@ pub struct CAN<M> {
     _mailbox_reader_index: u8,
 }
 
-const CAN1_ADDR: u32 = 0x401d0000;
-const CAN2_ADDR: u32 = 0x401d4000;
-
 #[derive(Debug)]
 pub struct MailboxData {
     pub frame: Frame,
@@ -245,10 +242,8 @@ where
     }
 
     pub fn base_address(&self) -> u32 {
-        match self.is_can1() {
-            true => CAN1_ADDR,
-            false => CAN2_ADDR,
-        }
+        let addr: *const ral::can::RegisterBlock = &*self.reg;
+        addr as u32
     }
 
     pub fn free(self) -> ral::can::Instance {
