@@ -430,13 +430,6 @@ impl PartialEq for Data {
 
 impl Eq for Data {}
 
-#[cfg(feature = "unstable-defmt")]
-impl defmt::Format for Data {
-    fn format(&self, fmt: defmt::Formatter<'_>) {
-        self.as_ref().format(fmt)
-    }
-}
-
 macro_rules! data_from_array {
     ( $($len:literal),+ ) => {
         $(

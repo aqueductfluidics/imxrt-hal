@@ -16,7 +16,6 @@ use core::marker::PhantomData;
 
 /// Error that indicates that an incoming message has been lost due to buffer overrun.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
 pub struct OverrunError {
     _priv: (),
 }
@@ -125,15 +124,6 @@ const CAN2_ADDR: u32 = 0x401d4000;
 pub struct MailboxData {
     pub frame: Frame,
     pub mailbox_number: u8,
-}
-
-#[inline]
-fn constrain<T: PartialOrd>(value: T, min: T, max: T) -> T {
-    match value {
-        v if v < min => min,
-        v if v > max => max,
-        _ => value,
-    }
 }
 
 impl<M> CAN<M>
@@ -498,7 +488,7 @@ where
     }
 
     pub fn set_max_mailbox(&mut self, last: u8) {
-        let last = constrain(last, 1, 64) - 1;
+        let last = last.clamp(1, 64) - 1;
         self.while_frozen(|this| {
             let fifo_cleared = this.fifo_enabled();
             this.disable_fifo();
@@ -643,7 +633,7 @@ where
                 let offset = this.mailbox_offset();
                 for i in 0..max_fifo_filters {
                     this.write_mailbox_idflt_tab(i as u8, Some(0x00));
-                    if i < constrain(offset as usize, 0, 32) as u32 {
+                    if i < offset.clamp(0, 32) as u32 {
                         this.write_mailbox_rximr(i as u8, Some(0x00));
                     }
                 }
@@ -654,7 +644,7 @@ where
                     let offset = this.mailbox_offset();
                     for i in 0..max_fifo_filters {
                         this.write_mailbox_idflt_tab(i as u8, Some(0xFFFFFFFF));
-                        if i < constrain(offset, 0, 32) as u32 {
+                        if i < offset.clamp(0, 32) as u32 {
                             this.write_mailbox_rximr(i as u8, Some(0x3FFFFFFF));
                         }
                     }
@@ -664,7 +654,7 @@ where
                     let offset = this.mailbox_offset();
                     for i in 0..max_fifo_filters {
                         this.write_mailbox_idflt_tab(i as u8, Some(0xFFFFFFFF));
-                        if i < constrain(offset as usize, 0, 32) as u32 {
+                        if i < offset.clamp(0, 32) as u32 {
                             this.write_mailbox_rximr(i as u8, Some(0x7FFF7FFF));
                         }
                     }
@@ -715,7 +705,7 @@ where
                 };
                 this.write_mailbox_idflt_tab(filter_id, Some(filter));
                 let offset = this.mailbox_offset();
-                if filter_id < constrain(offset, 0, 32) as u8 {
+                if filter_id < offset.clamp(0, 32) as u8 {
                     this.write_mailbox_rximr(filter_id, Some(mask));
                 }
                 write_reg!(ral::can, this.reg, RXFGMASK, 0x3FFFFFFF);
@@ -764,7 +754,7 @@ where
                     });
                 this.write_mailbox_idflt_tab(filter_id, Some(filter));
                 let offset = this.mailbox_offset();
-                if filter_id < constrain(offset as usize, 0, 32) as u8 {
+                if filter_id < offset.clamp(0, 32) as u8 {
                     this.write_mailbox_rximr(filter_id, Some(mask));
                 }
                 write_reg!(ral::can, this.reg, RXFGMASK, 0x7FFF7FFF);
