@@ -9,6 +9,7 @@ use ral::{modify_reg, read_reg, write_reg};
 
 use crate::ccm;
 use crate::iomuxc::consts::{Unsigned, U1, U2};
+use crate::iomuxc::can;
 use crate::ral;
 
 use core::convert::Infallible;
@@ -103,7 +104,14 @@ where
 
     /// Builds a Can peripheral. The return
     /// is a configured FlexCan peripheral running at 24MHz.
-    pub fn build(self) -> CAN<M> {
+    pub fn build<TX, RX>(self, mut tx: TX, mut rx: RX) -> CAN<M>
+    where
+        TX: can::Pin<Module = M, Signal = can::Tx>,
+        RX: can::Pin<Module = M, Signal = can::Rx>,
+    {
+        crate::iomuxc::can::prepare(&mut tx);
+        crate::iomuxc::can::prepare(&mut rx);
+        
         CAN::new(self.source_clock, self.reg)
     }
 }
@@ -185,8 +193,6 @@ where
 
     pub fn begin(&mut self) {
         self.set_ccm_ccg();
-        self.set_tx();
-        self.set_rx();
 
         ral::modify_reg!(ral::can, self.reg, MCR, MDIS: MDIS_0);
 
@@ -284,114 +290,6 @@ where
             }
             u => {
                 log::error!("Invalid Can instance (set_ccm_ccg): {:?}", u);
-            }
-        }
-    }
-
-    fn set_tx(&mut self) {
-        match self.instance_number() {
-            1 => {
-                unsafe {
-                    modify_reg!(
-                        ral::iomuxc,
-                        IOMUXC,
-                        SW_MUX_CTL_PAD_GPIO_AD_B1_08,
-                        MUX_MODE: ALT2,
-                        SION: ENABLED
-                    )
-                };
-                unsafe {
-                    write_reg!(
-                        ral::iomuxc,
-                        IOMUXC,
-                        SW_PAD_CTL_PAD_GPIO_AD_B1_08,
-                        0x10B0_u32
-                    )
-                };
-            }
-            2 => {
-                unsafe {
-                    modify_reg!(
-                        ral::iomuxc,
-                        IOMUXC,
-                        SW_MUX_CTL_PAD_GPIO_AD_B0_02,
-                        MUX_MODE: ALT0,
-                        SION: ENABLED
-                    )
-                };
-                unsafe {
-                    write_reg!(
-                        ral::iomuxc,
-                        IOMUXC,
-                        SW_PAD_CTL_PAD_GPIO_AD_B0_02,
-                        0x10B0_u32
-                    )
-                };
-            }
-            u => {
-                log::error!("Invalid Can instance (set_tx): {:?}", u);
-            }
-        }
-    }
-
-    fn set_rx(&mut self) {
-        match self.instance_number() {
-            1 => {
-                unsafe {
-                    modify_reg!(
-                        ral::iomuxc,
-                        IOMUXC,
-                        FLEXCAN1_RX_SELECT_INPUT,
-                        DAISY: GPIO_AD_B1_09_ALT2
-                    )
-                };
-                unsafe {
-                    modify_reg!(
-                        ral::iomuxc,
-                        IOMUXC,
-                        SW_MUX_CTL_PAD_GPIO_AD_B1_09,
-                        MUX_MODE: ALT2,
-                        SION: ENABLED
-                    )
-                };
-                unsafe {
-                    write_reg!(
-                        ral::iomuxc,
-                        IOMUXC,
-                        SW_PAD_CTL_PAD_GPIO_AD_B1_09,
-                        0x10B0_u32
-                    )
-                };
-            }
-            2 => {
-                unsafe {
-                    modify_reg!(
-                        ral::iomuxc,
-                        IOMUXC,
-                        FLEXCAN2_RX_SELECT_INPUT,
-                        DAISY: GPIO_AD_B0_03_ALT0
-                    )
-                };
-                unsafe {
-                    modify_reg!(
-                        ral::iomuxc,
-                        IOMUXC,
-                        SW_MUX_CTL_PAD_GPIO_AD_B0_03,
-                        MUX_MODE: ALT0,
-                        SION: ENABLED
-                    )
-                };
-                unsafe {
-                    write_reg!(
-                        ral::iomuxc,
-                        IOMUXC,
-                        SW_PAD_CTL_PAD_GPIO_AD_B0_03,
-                        0x10B0_u32
-                    )
-                };
-            }
-            u => {
-                log::error!("Invalid Can instance (set_rx): {:?}", u);
             }
         }
     }
