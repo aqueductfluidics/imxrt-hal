@@ -24,7 +24,7 @@ where
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
         match self.read_mailboxes() {
             Some(d) => Ok(d.frame),
-            None => Err(Self::Error),
+            None => Err(nb::Error::Other(NoDataError { _priv: () })),
         }
     }
 }

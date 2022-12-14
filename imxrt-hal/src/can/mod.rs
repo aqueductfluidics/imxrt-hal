@@ -15,7 +15,8 @@ use crate::ral;
 use core::convert::Infallible;
 use core::marker::PhantomData;
 
-/// Error that indicates that an incoming message has been lost due to buffer overrun.
+/// Error that indicates that no received frames are available
+/// in the FlexCAN mailboxes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoDataError {
     _priv: (),
