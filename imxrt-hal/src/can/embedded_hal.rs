@@ -1,6 +1,6 @@
 //! `embedded_hal` trait impls.
 
-use super::{Data, ExtendedId, Frame, Id, OverrunError, StandardId, CAN};
+use super::{Data, ExtendedId, Frame, Id, NoDataError, StandardId, CAN};
 
 use crate::iomuxc::consts::Unsigned;
 use embedded_hal::can;
@@ -11,7 +11,7 @@ where
 {
     type Frame = Frame;
 
-    type Error = OverrunError;
+    type Error = NoDataError;
 
     fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
         match self.transmit(frame) {
@@ -22,14 +22,14 @@ where
     }
 
     fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
-        let data: [u8; 8] = [255, 255, 255, 255, 255, 255, 255, 255];
-        let id = StandardId::new(0).unwrap();
-
-        Ok(Frame::new_data(id, Data::new(&data).unwrap()))
+        match self.read_mailboxes() {
+            Some(d) => Ok(d.frame),
+            None => Err(Self::Error),
+        }
     }
 }
 
-impl can::Error for OverrunError {
+impl can::Error for NoDataError {
     fn kind(&self) -> can::ErrorKind {
         can::ErrorKind::Overrun
     }

@@ -17,7 +17,7 @@ use core::marker::PhantomData;
 
 /// Error that indicates that an incoming message has been lost due to buffer overrun.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OverrunError {
+pub struct NoDataError {
     _priv: (),
 }
 
@@ -911,7 +911,7 @@ where
         return;
     }
 
-    pub fn read_mailboxes(&mut self) -> Option<()> {
+    pub fn read_mailboxes(&mut self) -> Option<MailboxData> {
         let mut iflag: u64;
         let mut cycle_limit: u8 = 3;
         let offset = self.mailbox_offset();
@@ -946,7 +946,7 @@ where
             }
             match self.read_mailbox(self._mailbox_reader_index) {
                 Some(mailbox_data) => {
-                    log::info!("RX Data: {:?}", &mailbox_data,);
+                    return Some(mailbox_data);
                 }
                 _ => {}
             }
