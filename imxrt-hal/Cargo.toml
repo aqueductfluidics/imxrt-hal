@@ -13,7 +13,7 @@ keywords = ["imxrt", "nxp", "embedded", "no_std"]
 categories = ["embedded", "no-std"]
 license = "MIT/Apache-2.0"
 edition = "2018"
-version = "0.5.0-alpha"
+version = "0.5.0-can"
 
 [dependencies]
 as-slice = "0.1.3"
