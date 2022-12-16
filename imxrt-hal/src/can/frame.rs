@@ -125,7 +125,7 @@ impl PartialEq for Frame {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum FlexCanMailboxCSCode {
     RxInactive = 0b0000,
