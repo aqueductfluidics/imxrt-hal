@@ -38,6 +38,7 @@ pub mod spi;
 pub mod srtc;
 pub mod trng;
 pub mod uart;
+pub mod wdog;
 
 pub mod dcdc {
     use imxrt_ral as ral;
@@ -68,6 +69,8 @@ pub struct Peripherals {
     pub dma: dma::Unclocked,
     pub srtc: srtc::Unclocked,
     pub trng: trng::Unclocked,
+    pub wdog1: wdog::Unclocked<iomuxc::consts::U1>,
+    pub wdog2: wdog::Unclocked<iomuxc::consts::U2>,
 }
 
 impl Peripherals {
@@ -123,6 +126,8 @@ impl Peripherals {
             dma: dma::Unclocked::new(ral::dma0::DMA0::steal(), ral::dmamux::DMAMUX::steal()),
             srtc: srtc::Unclocked::new(ral::snvs::SNVS::steal()),
             trng: trng::Unclocked::new(ral::trng::TRNG::steal()),
+            wdog1: wdog::Unclocked::new(ral::wdog::WDOG1::steal()),
+            wdog2: wdog::Unclocked::new(ral::wdog::WDOG2::steal()),
         }
     }
 
@@ -175,6 +180,8 @@ impl Peripherals {
             dma: dma::Unclocked::new(ral::dma0::DMA0::take()?, ral::dmamux::DMAMUX::take()?),
             srtc: srtc::Unclocked::new(ral::snvs::SNVS::take()?),
             trng: trng::Unclocked::new(ral::trng::TRNG::take()?),
+            wdog1: wdog::Unclocked::new(ral::wdog::WDOG1::take()?),
+            wdog2: wdog::Unclocked::new(ral::wdog::WDOG2::take()?),
         };
         Some(p)
     }
