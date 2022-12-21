@@ -1,13 +1,10 @@
-use core::fmt;
-
 use embedded_hal::watchdog;
 
 use crate::ccm;
-use crate::ral::wdog::{self, Instance};
-use crate::iomuxc::consts::{Unsigned, U0, U1, U2, U3, U4};
+use crate::iomuxc::consts::Unsigned;
 use crate::ral;
+use crate::ral::wdog::{self, Instance};
 use core::marker::PhantomData;
-
 
 /// The WDOG, not yet enabled.
 pub struct Unclocked<M> {
@@ -25,7 +22,7 @@ where
             _module: PhantomData,
         }
     }
-    
+
     /// Enable clocks to all SPI modules, returning a builder for the four SPI modules.
     pub fn clock(self, handle: &mut ccm::Handle) -> WDOG<M> {
         let (ccm, _) = handle.raw();
@@ -64,7 +61,7 @@ where
         wdog.begin();
         wdog
     }
-    
+
     fn begin(&mut self) {
         ral::modify_reg!(ral::wdog, self.reg, WCR, SRS: SRS_1, WT: 0b1111 );
         ral::modify_reg!(ral::wdog, self.reg, WICR, WTIS: WTIS_1, WICT: 0b11 );
@@ -86,3 +83,8 @@ where
     }
 }
 
+impl<M: Unsigned> embedded_hal::watchdog::Watchdog for WDOG<M> {
+    fn feed(&mut self) {
+        self.feed()
+    }
+}
