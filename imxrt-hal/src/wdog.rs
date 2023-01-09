@@ -1,5 +1,3 @@
-use embedded_hal::watchdog;
-
 use crate::ccm;
 use crate::iomuxc::consts::Unsigned;
 use crate::ral;
