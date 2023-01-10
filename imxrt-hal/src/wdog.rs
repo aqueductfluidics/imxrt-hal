@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use embedded_hal::watchdog;
 
 use crate::ccm;
