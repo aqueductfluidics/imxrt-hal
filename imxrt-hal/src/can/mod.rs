@@ -17,7 +17,7 @@
 //! );
 //!
 //! let mut can1 = can1_builder.build(
-//!     peripherals.iomuxc.ad_b1.p08, 
+//!     peripherals.iomuxc.ad_b1.p08,
 //!     peripherals.iomuxc.ad_b1.p09
 //! );
 //!
@@ -88,15 +88,16 @@ impl Unclocked {
         divider: ccm::can::PrescalarSelect,
     ) -> (Builder<U1>, Builder<U2>) {
         let (ccm, _) = handle.raw();
-        // First, disable clocks
+
+        // First, disable the clocks for Can1 and Can2
         ral::modify_reg!(
             ral::ccm,
             ccm,
-            CCGR1,
-            CG0: 0,
-            CG1: 0,
-            CG2: 0,
-            CG3: 0
+            CCGR0,
+            CG7: 0b00,
+            CG8: 0b00,
+            CG9: 0b00,
+            CG10: 0b00
         );
 
         let clk_sel = match clock_select {
@@ -112,15 +113,15 @@ impl Unclocked {
             CAN_CLK_SEL: clk_sel
         );
 
-        // Enable clocks
+        // Enable the clocks for Can1 and Can2
         ral::modify_reg!(
             ral::ccm,
             ccm,
-            CCGR1,
-            CG0: 0b11,
-            CG1: 0b11,
-            CG2: 0b11,
-            CG3: 0b11
+            CCGR0,
+            CG7: 0b11,
+            CG8: 0b11,
+            CG9: 0b11,
+            CG10: 0b11
         );
 
         let source_clock = ccm::Frequency::from(clock_select) / ccm::Divider::from(divider);
@@ -150,8 +151,7 @@ where
         }
     }
 
-    /// Builds a Can peripheral. The return
-    /// is a configured FlexCan peripheral running at 24MHz.
+    /// Builds a Can peripheral.
     pub fn build<TX, RX>(self, mut tx: TX, mut rx: RX) -> CAN<M>
     where
         TX: can::Pin<Module = M, Signal = can::Tx>,
@@ -196,10 +196,6 @@ where
         can
     }
 
-    pub fn instance(&mut self) -> &mut ral::can::Instance {
-        &mut self.reg
-    }
-
     pub fn print_registers(&self) {
         log::info!("MCR: {:X}", ral::read_reg!(ral::can, self.reg, MCR));
         log::info!("CTRL1: {:X}", ral::read_reg!(ral::can, self.reg, CTRL1));
@@ -240,8 +236,6 @@ where
     }
 
     pub fn begin(&mut self) {
-        self.set_ccm_ccg();
-
         ral::modify_reg!(ral::can, self.reg, MCR, MDIS: MDIS_0);
 
         self.enter_freeze_mode();
@@ -328,20 +322,6 @@ where
         ral::modify_reg!(ral::can, self.reg, CTRL2, RRS: rrs as u32)
     }
 
-    fn set_ccm_ccg(&mut self) {
-        match self.instance_number() {
-            1 => {
-                unsafe { modify_reg!(ral::ccm, CCM, CCGR0, |reg| reg | 0x3C000) };
-            }
-            2 => {
-                unsafe { modify_reg!(ral::ccm, CCM, CCGR0, |reg| reg | 0x3C0000) };
-            }
-            u => {
-                log::error!("Invalid Can instance (set_ccm_ccg): {:?}", u);
-            }
-        }
-    }
-
     pub fn get_clock(&self) -> u32 {
         self.source_clock.0
     }
@@ -374,23 +354,31 @@ where
     }
 
     pub fn set_baud_rate(&mut self, baud: u32) {
+
+        fn calc_result(baud: u32, clock_freq: u32, divisor: u32) -> u32 {
+            clock_freq / baud / (divisor + 1)
+        }
+
+        fn calc_error(baud: u32, clock_freq: u32, result: u32, divisor: u32) -> u32 {
+            baud.abs_diff(clock_freq / (result * (divisor + 1)))
+        }
+
         let clock_freq = self.get_clock();
 
         let mut divisor = 0;
         let mut best_divisor: u32 = 0;
-        let mut result: u32 = clock_freq / baud / (divisor + 1);
-        let mut error: i16 = (baud - (clock_freq / (result * (divisor + 1)))) as i16;
+        
+        let mut result: u32 = calc_result(baud, clock_freq, divisor);
+        
+        let mut error = calc_error(baud, clock_freq, result, divisor);
         let mut best_error = error;
 
         self.while_frozen(|this| {
             while result > 5 {
                 divisor += 1;
-                result = clock_freq / baud / (divisor + 1);
+                result = calc_result(baud, clock_freq, divisor);
                 if result <= 25 {
-                    error = (baud - (clock_freq / (result * (divisor + 1)))) as i16;
-                    if error < 0 {
-                        error = -1 * error;
-                    }
+                    error = calc_error(baud, clock_freq, result, divisor);
                     if error < best_error {
                         best_error = error;
                         best_divisor = divisor;
@@ -405,26 +393,25 @@ where
             divisor = best_divisor;
             result = clock_freq / baud / (divisor + 1);
 
-            if !(result < 5) || (result > 25) || (best_error > 300) {
-                result -= 5;
+            if !(5..=25).contains(&result) || (best_error > 300) {
+                return;
+            };
 
-                match this.result_to_bit_table(result as u8) {
-                    Some(t) => {
-                        modify_reg!(
-                            ral::can,
-                            this.reg,
-                            CTRL1,
-                            PROPSEG: t[0],
-                            RJW: 1,
-                            PSEG1: t[1],
-                            PSEG2: t[2],
-                            ERRMSK: ERRMSK_1,
-                            LOM: LOM_0,
-                            PRESDIV: divisor)
-                    }
-                    _ => {}
-                }
-            }
+            result -= 5;
+
+            if let Some(t) = this.result_to_bit_table(result as u8) {
+                modify_reg!(
+                    ral::can,
+                    this.reg,
+                    CTRL1,
+                    PROPSEG: t[0],
+                    RJW: 1,
+                    PSEG1: t[1],
+                    PSEG2: t[2],
+                    ERRMSK: ERRMSK_1,
+                    LOM: LOM_0,
+                    PRESDIV: divisor)
+            };
         });
     }
 
@@ -525,7 +512,7 @@ where
                         };
                         this.write_mailbox(i, Some(code), None, None);
                         let eacen = read_reg!(ral::can, this.reg, CTRL2, EACEN == EACEN_1);
-                        let rximr = 0_32 | {
+                        let rximr = {
                             if eacen {
                                 1_u32 << 30
                             } else {
@@ -612,16 +599,16 @@ where
         })
     }
 
-    pub fn set_fifo_filter(
-        &mut self,
-        filter_id: u8,
-        id: u32,
-        ide: filter::FlexCanIde,
-        remote: filter::FlexCanIde,
-    ) {
+    pub fn set_fifo_filter(&mut self, filter: filter::FlexCanFilter) {
         if !self.fifo_enabled() {
             return;
         }
+        let filter::FlexCanFilter {
+            filter_id,
+            id,
+            ide,
+            remote,
+        } = filter;
         let max_fifo_filters = (read_reg!(ral::can, self.reg, CTRL2, RFFN) + 1) * 8;
         if filter_id as u32 >= max_fifo_filters {
             return;
@@ -629,16 +616,12 @@ where
         self.while_frozen(|this| match read_reg!(ral::can, this.reg, MCR, IDAM) {
             ral::can::MCR::IDAM::RW::IDAM_0 => {
                 let mask: u32 = if ide != filter::FlexCanIde::Ext {
-                    ((((id) ^ (id)) ^ 0x7FF) << 19) | 0xC0000001
+                    ((id ^ 0x7FF) << 19) | 0xC0000001
                 } else {
-                    ((((id) ^ (id)) ^ 0x1FFFFFFF) << 1) | 0xC0000001
+                    ((id ^ 0x1FFFFFFF) << 1) | 0xC0000001
                 };
-                let mut filter: u32 = (if ide == filter::FlexCanIde::Ext { 1 } else { 0 } << 30);
-                filter |= if remote == filter::FlexCanIde::Rtr {
-                    1
-                } else {
-                    0
-                } << 31;
+                let mut filter: u32 = u32::from(ide == filter::FlexCanIde::Ext) << 30;
+                filter |= u32::from(remote == filter::FlexCanIde::Rtr) << 31;
                 filter |= if ide == filter::FlexCanIde::Ext {
                     (id & 0x1FFFFFFF) << 1
                 } else {
@@ -646,56 +629,48 @@ where
                 };
                 this.write_mailbox_idflt_tab(filter_id, Some(filter));
                 let offset = this.mailbox_offset();
-                if filter_id < offset.clamp(0, 32) as u8 {
+                if filter_id < offset.clamp(0, 32) {
                     this.write_mailbox_rximr(filter_id, Some(mask));
                 }
                 write_reg!(ral::can, this.reg, RXFGMASK, 0x3FFFFFFF);
             }
             ral::can::MCR::IDAM::RW::IDAM_1 => {
                 let mut mask: u32 = if ide != filter::FlexCanIde::Ext {
-                    (((id) ^ (id)) ^ 0x7FF) << 19
+                    (id ^ 0x7FF) << 19
                 } else {
-                    (((id) ^ (id)) ^ 0x1FFFFFFF) << 16
+                    (id ^ 0x1FFFFFFF) << 16
                 } | if remote == filter::FlexCanIde::Rtr {
                     1 << 31
                 } else {
                     0
                 };
                 mask |= if ide != filter::FlexCanIde::Ext {
-                    (((id) ^ (id)) ^ 0x7FF) << 3
+                    (id ^ 0x7FF) << 3
                 } else {
-                    (((id) ^ (id)) ^ 0x1FFFFFFF) << 0
+                    id ^ 0x1FFFFFFF
                 } | if remote == filter::FlexCanIde::Rtr {
                     1 << 15
                 } else {
                     0
                 } & 0xFFFF;
                 mask |= (1 << 30) | (1 << 14);
-                let filter: u32 = (if ide == filter::FlexCanIde::Ext { 1 } else { 0 } << 30)
-                    | (if ide == filter::FlexCanIde::Ext { 1 } else { 0 } << 14)
-                    | (if remote == filter::FlexCanIde::Rtr {
-                        1
-                    } else {
-                        0
-                    } << 31)
-                    | (if remote == filter::FlexCanIde::Rtr {
-                        1
-                    } else {
-                        0
-                    } << 15)
+                let filter: u32 = u32::from(ide == filter::FlexCanIde::Ext) << 30
+                    | u32::from(ide == filter::FlexCanIde::Ext) << 14
+                    | u32::from(remote == filter::FlexCanIde::Rtr) << 31
+                    | u32::from(remote == filter::FlexCanIde::Rtr) << 15
                     | (if ide == filter::FlexCanIde::Ext {
                         (id >> (29 - 14)) << 16
                     } else {
                         (id & 0x7FF) << 19
                     })
                     | (if ide == filter::FlexCanIde::Ext {
-                        (id >> (29 - 14)) << 0
+                        id >> (29 - 14)
                     } else {
                         (id & 0x7FF) << 3
                     });
                 this.write_mailbox_idflt_tab(filter_id, Some(filter));
                 let offset = this.mailbox_offset();
-                if filter_id < offset.clamp(0, 32) as u8 {
+                if filter_id < offset.clamp(0, 32) {
                     this.write_mailbox_rximr(filter_id, Some(mask));
                 }
                 write_reg!(ral::can, this.reg, RXFGMASK, 0x7FFF7FFF);
@@ -708,10 +683,6 @@ where
             }
             _ => {}
         })
-    }
-
-    pub fn set_fifo_filter_2(&mut self, filter: filter::FlexCanFilter) {
-        self.set_fifo_filter(filter.filter_id, filter.id, filter.ide, filter.remote)
     }
 
     pub fn set_fifo_interrupt(&mut self, enabled: bool) {
@@ -741,34 +712,17 @@ where
         if self.fifo_enabled() {
             let max_mailbox = self.get_max_mailbox() as u32;
             let num_rx_fifo_filters = (read_reg!(ral::can, self.reg, CTRL2, RFFN) + 1) * 2;
-            let remaining_mailboxes = max_mailbox - 6_u32 - num_rx_fifo_filters;
+            let remaining_mailboxes = (max_mailbox - 6_u32 - num_rx_fifo_filters) as i32;
             /* return offset MB position after FIFO area */
-            if max_mailbox < max_mailbox - remaining_mailboxes {
+            if remaining_mailboxes > max_mailbox as i32 {
                 max_mailbox as u8
             } else {
-                (max_mailbox - remaining_mailboxes) as u8
+                (max_mailbox as i32 - remaining_mailboxes) as u8
             }
         } else {
             /* return offset 0 since FIFO is disabled */
             0
         }
-    }
-
-    #[allow(dead_code)]
-    fn read_fifo(&self) -> Option<()> {
-        // if FIFO enabled and interrupt not enabled
-        if !self.fifo_enabled() {
-            return None;
-        };
-        // FIFO interrupt enabled, polling blocked
-        if (ral::read_reg!(ral::can, self.reg, IMASK1) & (0x00000020 as u32)) != 0 {
-            return None;
-        }
-        // message available
-        if (ral::read_reg!(ral::can, self.reg, IFLAG1) & (0x00000020 as u32)) != 0 {
-            return None;
-        }
-        Some(())
     }
 
     #[inline(always)]
@@ -854,7 +808,7 @@ where
     ) {
         let mailbox_addr = self.mailbox_number_to_address(mailbox_number);
         if let Some(code) = code {
-            unsafe { core::ptr::write_volatile((mailbox_addr + 0_u32) as *mut u32, code) };
+            unsafe { core::ptr::write_volatile((mailbox_addr) as *mut u32, code) };
         }
         if let Some(id) = id {
             unsafe { core::ptr::write_volatile((mailbox_addr + 0x4_u32) as *mut u32, id) };
@@ -937,21 +891,15 @@ where
             /* enable mailbox interrupt */
             self.write_imask_bit(mailbox_number, true);
             return;
-        } else {
-            match self.read_mailbox(mailbox_number) {
-                Some(d) => {
-                    if (d.frame.code.to_code_reg() & 0x0F000000) >> 3 != 0 {
-                        /* transmit interrupt keeper */
-                        self.write_imask_bit(mailbox_number, true);
-                        return;
-                    }
-                }
-                _ => {}
+        } else if let Some(d) = self.read_mailbox(mailbox_number) {
+            if (d.frame.code.to_code_reg() & 0x0F000000) >> 3 != 0 {
+                /* transmit interrupt keeper */
+                self.write_imask_bit(mailbox_number, true);
+                return;
             }
         }
         /* disable mailbox interrupt */
         self.write_imask_bit(mailbox_number, false);
-        return;
     }
 
     pub fn read_mailboxes(&mut self) -> Option<MailboxData> {
@@ -987,11 +935,8 @@ where
                 self._mailbox_reader_index += 1;
                 continue; /* don't read interrupt enabled mailboxes */
             }
-            match self.read_mailbox(self._mailbox_reader_index) {
-                Some(mailbox_data) => {
-                    return Some(mailbox_data);
-                }
-                _ => {}
+            if let Some(mailbox_data) = self.read_mailbox(self._mailbox_reader_index) {
+                return Some(mailbox_data);
             }
             self._mailbox_reader_index += 1;
         }
@@ -1032,9 +977,4 @@ where
         }
         Err(nb::Error::Other(Error::NoTxMailbox))
     }
-}
-
-/// Interface to the Can transmitter part.
-pub struct Tx<I> {
-    _can: PhantomData<I>,
 }
