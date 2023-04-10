@@ -29,8 +29,8 @@ version = "0.2.4"
 features = ["unproven"] # Allows us to access the new digital pin traits
 
 [dependencies.imxrt-dma]
-version = "0.1"
-rev = "a825d22"
+version = "0.1.1"
+rev = "dd4c11a"
 git = "https://github.com/imxrt-rs/imxrt-dma" 
 
 [dependencies.imxrt-ral]
