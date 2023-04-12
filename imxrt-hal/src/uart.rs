@@ -431,7 +431,6 @@ where
     pub fn set_rx_fifo(&mut self, enable: bool) {
         self.while_disabled(|this| {
             ral::modify_reg!(ral::lpuart, this.reg, FIFO, RXFE: u32::from(enable));
-            ral::modify_reg!(ral::lpuart, this.reg, FIFO, RXFIFOSIZE: RXFIFOSIZE_7);
         })
     }
 
