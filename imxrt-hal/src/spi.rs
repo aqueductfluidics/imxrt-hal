@@ -247,13 +247,7 @@ where
         ral::write_reg!(ral::lpspi, spi.reg, CR, RST: RST_1);
         ral::write_reg!(ral::lpspi, spi.reg, CR, RST: RST_0);
         spi.set_clock_speed(ClockSpeed::default()).unwrap();
-        ral::write_reg!(
-            ral::lpspi,
-            spi.reg,
-            CFGR1,
-            MASTER: MASTER_1,
-            SAMPLE: SAMPLE_1
-        );
+        ral::write_reg!(ral::lpspi, spi.reg, CFGR1, MASTER: MASTER_1);
         spi.set_mode(embedded_hal::spi::MODE_0).unwrap();
         ral::write_reg!(ral::lpspi, spi.reg, FCR, RXWATER: 0xF, TXWATER: 0xF);
         ral::write_reg!(ral::lpspi, spi.reg, CR, MEN: MEN_1);
