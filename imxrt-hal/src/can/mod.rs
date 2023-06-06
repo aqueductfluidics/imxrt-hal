@@ -768,14 +768,35 @@ where
                     unsafe { core::ptr::read_volatile((mailbox_addr + 0x8_u32) as *const u32) };
                 let data1 =
                     unsafe { core::ptr::read_volatile((mailbox_addr + 0xC_u32) as *const u32) };
+                
+                let mut bytes: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+                
+                let code_reg = CodeReg::new(code);
+                let len = code_reg.dlc();
 
-                let mut data: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
                 for i in 0..4 {
-                    data[3 - i] = (data0 >> (8 * i)) as u8;
+                    bytes[3 - i] = (data0 >> (8 * i)) as u8;
                 }
-                for i in 0..4 {
-                    data[7 - i] = (data1 >> (8 * i)) as u8;
+                
+                if len > 4 {
+                    for i in 0..4 {
+                        bytes[7 - i] = (data1 >> (8 * i)) as u8;
+                    }
                 }
+
+                self.write_mailbox(
+                    mailbox_number,
+                    Some(FlexCanMailboxCSCode::RxEmpty.to_code_reg()),
+                    None,
+                    None,
+                );
+                read_reg!(ral::can, self.reg, TIMER);
+                self.write_iflag_bit(mailbox_number);
+
+                let data = Data {
+                    len,
+                    bytes
+                };
 
                 self.write_mailbox(
                     mailbox_number,
