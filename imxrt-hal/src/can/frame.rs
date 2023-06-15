@@ -202,7 +202,7 @@ impl CodeReg {
     const RTR_MASK: u32 = 0b1_u32 << Self::RTR_SHIFT;
 
     const DLC_SHIFT: u32 = 16;
-    const DLC_MASK: u32 = 0b111_u32 << Self::DLC_SHIFT;
+    const DLC_MASK: u32 = 0b1111_u32 << Self::DLC_SHIFT;
 
     const TIMESTAMP_SHIFT: u32 = 0;
     const TIMESTAMP_MASK: u32 = 0xFFFF_u32 << Self::TIMESTAMP_SHIFT;
