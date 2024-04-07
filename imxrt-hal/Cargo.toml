@@ -30,8 +30,8 @@ features = ["unproven"] # Allows us to access the new digital pin traits
 
 [dependencies.imxrt-dma]
 version = "0.1"
-rev = "a825d22"
-git = "https://github.com/imxrt-rs/imxrt-dma" 
+rev = "49403a8"
+git = "https://github.com/aqueductfluidics/imxrt-dma" 
 
 [dependencies.imxrt-ral]
 version = "0.4.0"
